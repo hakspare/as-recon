@@ -13,7 +13,7 @@
 
 ## 🛠 ইনস্টলেশন পদ্ধতি
 ```bash
-git clone [https://github.com/YOUR_USERNAME/as-recon](https://github.com/YOUR_USERNAME/as-recon)
+git clone https://github.com/hakspare/as-recon
 cd as-recon
 chmod +x setup.sh
 ./setup.sh
