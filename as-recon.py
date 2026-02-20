@@ -2,13 +2,13 @@
 import requests, urllib3, sys, concurrent.futures, re, time, argparse, socket, hashlib, string
 from random import choices
 
-# SSL এরর মেসেজ হাইড করার জন্য
+# Disable SSL Warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- কালার এবং স্টাইলিং ---
+# --- Professional Colors ---
 C, G, Y, R, M, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[95m', '\033[0m', '\033[1m'
 
-# --- প্রফেশনাল ASCII লোগো ---
+# --- The Mega Logo ---
 LOGO = f"""{C}{B}
    ▄▄▄· .▄▄ ·      ▄▄▄▄▄▄▄▄ . ▄▄·       ▐ ▄ 
   ▐█ ▀█ ▐█ ▀. ▪     •██  ▀▄.▀·▐█ ▄·▪     •█▌▐█
@@ -27,7 +27,6 @@ class Intelligence:
         self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AS-Recon/10.2"
 
     def setup_wildcard_filter(self):
-        """ভুয়া সাবডোমেইন ধরার জন্য ওয়াইল্ডকার্ড ডিটেকশন"""
         for _ in range(3):
             rand = "".join(choices(string.ascii_lowercase, k=15)) + "." + self.domain
             try:
@@ -49,29 +48,22 @@ def fetch_source(url, domain):
 
 def check_live_ultimate(subdomain, intel):
     try:
-        # DNS আইপি চেক
         ip = socket.gethostbyname(subdomain)
         if ip in intel.wildcard_ips: return None
         if not subdomain.endswith(intel.domain): return None
-
-        # HTTP প্রোপিং
         url = f"http://{subdomain}"
         r = requests.get(url, timeout=4, verify=False, allow_redirects=True, headers={"User-Agent": intel.ua})
-        
-        # কন্টেন্ট হ্যাশ চেক
         if hashlib.md5(r.content).hexdigest() == intel.wildcard_hash: return None
-
         server = r.headers.get('Server', 'Hidden')[:12]
         cdn = "CF" if "cloudflare" in server.lower() or "cf-ray" in r.headers else "Direct"
         sc = r.status_code
         color = G if sc == 200 else Y if sc in [403, 401] else R
-        
         display = f" {C}»{W} {subdomain.ljust(35)} {B}{color}[{sc}]{W} {M}({cdn}){W} {G}[{ip}]{W} {Y}({server}){W}"
         return (display, subdomain)
     except: return None
 
 def main():
-    start_time = time.time() # সময় গণনা শুরু
+    start_time = time.time()
     print(LOGO)
     
     parser = argparse.ArgumentParser()
@@ -108,7 +100,7 @@ def main():
     if not clean_list:
         print(f"{R}[!] Discovery phase failed to find data.{W}")
     else:
-        print(f"{G}[+]{W} Total Unique Candidates: {B}{len(clean_list)}{W}\n")
+        print(f"{G}[+]{W} Total Potential Targets: {B}{len(clean_list)}{W}\n")
         if args.live:
             with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
                 jobs = [executor.submit(check_live_ultimate, s, intel) for s in clean_list]
@@ -118,11 +110,12 @@ def main():
                         print(res[0])
                         final_results.append(res[1])
         else:
+            # এখানে ফিক্স করা হয়েছে: লিস্টে অ্যাড না করলে সামারি জিরো আসতো
             for s in clean_list:
                 print(f" {C}»{W} {s}")
                 final_results.append(s)
 
-    # --- সামারি বক্স জেনারেটর (ফাইনাল ফিক্স) ---
+    # --- THE SUMMARY BOX (Always Show Fix) ---
     end_time = time.time()
     duration = round(end_time - start_time, 2)
     
