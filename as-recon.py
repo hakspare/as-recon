@@ -17,16 +17,16 @@ def get_banner():
 {clr}  ▄█▀▀█ ▄▀▀▀█▄ ▄█▀▄  ▐█.▪▐▀▀▪▄██▀▀█▄█▀▄ ▐█▐▐▌
 {clr}  ▐█ ▪▐▌▐█▄▪▐█▐█▌.▐▌ ▐█▌·▐█▄▄▌▐█ ▪▐█▐█▌.▐▌██▐█▌
 {clr}   ▀  ▀  ▀▀▀▀  ▀█▄▀▪ ▀▀▀  ▀▀▀  ▀  ▀ ▀█▄▀▪▀▀ █▪
-{W}{B}     >> AS-RECON v7.0: The Hunter Edition <<{W}
+{W}{B}     >> AS-RECON v7.1: Turbo Optimized <<{W}
 {G}--------------------------------------------------------
 {Y}  Author  : {W}@hakspare (Ajijul Islam Shohan)
-{Y}  Engine  : {G}HyperDrive (18+ Sources) + Live Check{W}
+{Y}  Engine  : {G}HyperDrive + Fast Validation{W}
 {G}--------------------------------------------------------{W}"""
 
 def fetch_source(url, domain):
     try:
         ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        res = requests.get(url, headers={'User-Agent': ua}, timeout=15, verify=False)
+        res = requests.get(url, headers={'User-Agent': ua}, timeout=10, verify=False)
         if res.status_code == 200:
             pattern = r'(?:[a-zA-Z0-9-]+\.)+' + re.escape(domain)
             return [s.lower() for s in re.findall(pattern, res.text)]
@@ -34,10 +34,11 @@ def fetch_source(url, domain):
     return []
 
 def check_status(subdomain):
-    """চেক করবে সাবডোমেইনটি কি ২০০ ওকে দিচ্ছে নাকি অন্য কিছু"""
+    """Turbo Validation: টাইমআউট মাত্র ২ সেকেন্ড"""
     try:
         url = f"http://{subdomain}"
-        r = requests.get(url, timeout=5, verify=False, allow_redirects=True)
+        # লাইভ চেকিংয়ের সময় ২ সেকেন্ডের বেশি অপেক্ষা করবে না
+        r = requests.get(url, timeout=2, verify=False, allow_redirects=True)
         sc = r.status_code
         color = G if sc == 200 else Y if sc in [403, 401] else R
         return f"{subdomain} {B}{color}[{sc}]{W}"
@@ -45,33 +46,21 @@ def check_status(subdomain):
         return None
 
 def main():
-    # কাস্টম হেল্প মেনু
-    parser = argparse.ArgumentParser(description=f"{G}AS-RECON Ultimate - Pro Reconnaissance Framework{W}", usage="as-recon [options]")
+    parser = argparse.ArgumentParser(description=f"{G}AS-RECON Ultimate - Fast Recon Framework{W}")
+    parser.add_argument("-d", "--domain", help="Target domain", required=True)
+    parser.add_argument("-o", "--output", help="Save unique results")
+    parser.add_argument("-t", "--threads", help="Parallel threads (default: 50)", type=int, default=50)
+    parser.add_argument("--live", help="Check HTTP status (Slower but accurate)", action="store_true")
     
-    group = parser.add_argument_group(f"{Y}TARGET OPTIONS{W}")
-    group.add_argument("-d", "--domain", help="Target domain (e.g., google.com)", required=True)
-    
-    mode = parser.add_argument_group(f"{Y}MODE OPTIONS{W}")
-    mode.add_argument("--live", help="Validate found subdomains (Check HTTP status)", action="store_true")
-    
-    config = parser.add_argument_group(f"{Y}CONFIG OPTIONS{W}")
-    config.add_argument("-o", "--output", help="File to save results")
-    config.add_argument("-t", "--threads", help="Parallel threads (default: 30)", type=int, default=30)
-    config.add_argument("-v", "--version", action="version", version=f"{Y}AS-RECON v7.0{W}")
-
     if len(sys.argv) == 1:
-        print(get_banner())
-        parser.print_help()
-        sys.exit()
+        print(get_banner()); parser.print_help(); sys.exit()
 
     args = parser.parse_args()
     print(get_banner())
     
-    target = args.domain
-    threads = args.threads
+    target, threads = args.domain, args.threads
     start_time = time.time()
 
-    # আপনার ১৮+ পাওয়ারফুল সোর্স লিস্ট (এখানে কিছু ডাইনামিক সোর্স আছে)
     sources = [
         f"https://web.archive.org/cdx/search/cdx?url=*.{target}/*&output=txt&fl=original&collapse=urlkey",
         f"https://otx.alienvault.com/api/v1/indicators/domain/{target}/passive_dns",
@@ -81,13 +70,14 @@ def main():
         f"https://sonar.omnisint.io/subdomains/{target}",
         f"https://jldc.me/anubis/subdomains/{target}",
         f"https://urlscan.io/api/v1/search/?q=domain:{target}",
-        f"https://api.threatminer.org/v2/domain.php?q={target}&rt=5"
+        f"https://api.threatminer.org/v2/domain.php?q={target}&rt=5",
+        f"https://rapiddns.io/subdomain/{target}?full=1"
     ]
 
     all_subs = set()
-    print(f"{C}[*] {W}Hunting for subdomains... (This may take a few seconds)")
+    print(f"{C}[*] {W}Hunting subdomains for {B}{target}{W}...")
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
         futures = {executor.submit(fetch_source, url, target): url for url in sources}
         for f in concurrent.futures.as_completed(futures):
             all_subs.update(f.result())
@@ -95,41 +85,31 @@ def main():
     results = sorted(list(set([s for s in all_subs if target in s])))
 
     if not results:
-        print(f"{R}[!] No subdomains found for {target}.{W}")
-        sys.exit()
+        print(f"{R}[!] No results found.{W}"); sys.exit()
 
-    print(f"{G}[+] Found {len(results)} subdomains!{W}\n")
+    print(f"{G}[+] Found {len(results)} unique subdomains!{W}\n")
 
-    final_results = []
     if args.live:
-        print(f"{C}[*] {W}Starting live validation engine with {threads} threads...\n")
+        print(f"{C}[*] {W}Validating with {Y}{threads}{W} threads (Timeout: 2s)...\n")
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-            check_futures = {executor.submit(check_status, s): s for s in results}
-            for f in concurrent.futures.as_completed(check_futures):
-                res = f.result()
-                if res:
-                    print(f" {C}»{W} {res}")
-                    final_results.append(res)
+            # map ব্যবহার করা হয়েছে স্পিড অপ্টিমাইজেশনের জন্য
+            live_results = list(executor.map(check_status, results))
+            for res in live_results:
+                if res: print(f" {C}»{W} {res}")
     else:
         for r in results:
             print(f" {C}»{W} {r}")
-            final_results.append(r)
 
-    # Summary Box
     print(f"\n{Y}┌──────────────────────────────────────────┐")
-    print(f"  {B}UNIQUE FOUND : {G}{len(results)}{W}")
-    print(f"  {B}MODE         : {C}{'Hunter (Live)' if args.live else 'Passive Only'}{W}")
-    print(f"  {B}SCAN TIME    : {C}{round(time.time()-start_time, 2)}s{W}")
+    print(f"  {B}TOTAL FOUND  : {G}{len(results)}{W}")
+    print(f"  {B}TIME TAKEN   : {C}{round(time.time()-start_time, 2)}s{W}")
     print(f"{Y}└──────────────────────────────────────────┘{W}")
 
     if args.output:
         with open(args.output, "w") as f:
             f.write("\n".join(results))
-        print(f"{M}[!] Results secured in: {W}{args.output}")
+        print(f"{M}[!] Saved to: {W}{args.output}")
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print(f"\n{R}[!] Aborted by user.{W}")
-        sys.exit()
+    try: main()
+    except KeyboardInterrupt: print(f"\n{R}[!] Stopped.{W}"); sys.exit()
