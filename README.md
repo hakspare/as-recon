@@ -20,7 +20,7 @@ This tool is compatible with **Kali Linux**, **Kali Nethunter**, **Parrot OS**, 
 ```bash
 pkg update && pkg upgrade -y
 pkg install python golang git -y
-git clone [https://github.com/hakspare/as-recon](https://github.com/hakspare/as-recon)
+git clone https://github.com/hakspare/as-recon
 cd as-recon
 chmod +x setup.sh
 ./setup.sh
@@ -31,7 +31,7 @@ cp as-recon.py $PREFIX/bin/as-recon
 ###🐉 For Kali Linux / Nethunter / Parrot OS Users
 sudo apt update && sudo apt upgrade -y
 sudo apt install python3 golang git -y
-git clone [https://github.com/hakspare/as-recon](https://github.com/hakspare/as-recon)
+git clone https://github.com/hakspare/as-recon
 cd as-recon
 chmod +x setup.sh
 sudo ./setup.sh
