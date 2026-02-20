@@ -1,22 +1,27 @@
+
 #!/bin/bash
-echo -e "\e[1;36m[+] Installing Advanced Recon Tools...\e[0m"
 
-sudo apt update
-sudo apt install golang git python3 -y
+echo "[+] Fast Installing AS-RECON Dependencies..."
 
-go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-go install github.com/tomnomnom/assetfinder@latest
-go install github.com/tomnomnom/waybackurls@latest
-go install github.com/lc/gau/v2/cmd/gau@latest
-go install github.com/projectdiscovery/katana/cmd/katana@latest
-go install github.com/tomnomnom/gf@latest
+# Sudo check and command fix for Termux/Kali
+if [ -d "/data/data/com.termux/files/usr/bin" ]; then
+    SUDO=""
+else
+    SUDO="sudo"
+fi
 
-# বাইনারি কপি
-sudo cp ~/go/bin/* /usr/bin/
+# Go install logic
+if ! command -v go &> /dev/null; then
+    echo "[!] Installing Go..."
+    pkg install golang -y || $SUDO apt install golang -y
+fi
 
-# কমান্ড সেটআপ
-chmod +x as-recon.py
-sudo cp as-recon.py /usr/bin/as-recon
+echo "[+] Downloading Subfinder, HTTPX, Gau, Katana..."
+go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest &
+go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest &
+go install -v github.com/lc/gau/v2/cmd/gau@latest &
+go install -v github.com/projectdiscovery/katana/cmd/katana@latest &
 
-echo -e "\e[1;32m[✓] Advanced Setup Finished! Now your tool has Subfinder & HTTPX.\e[0m"
+wait
+
+echo "[✓] Fast Setup Finished!"
