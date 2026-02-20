@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
-import argparse
-import subprocess
-import os
-import sys
-import concurrent.futures
-import requests
+import argparse, subprocess, os, sys, concurrent.futures, requests
 
-# Professional Color Codes
+# Color Codes
 R, G, Y, B, C, W, D, RESET = '\033[1;31m', '\033[1;32m', '\033[1;33m', '\033[1;34m', '\033[1;36m', '\033[1;37m', '\033[1;30m', '\033[0m'
 
 def logo():
-    # 'fr' fixes the SyntaxWarning by treating the logo as a raw string
+    # 'fr' ব্যবহার করা হয়েছে যাতে ইউজারদের কোনো SyntaxWarning না দেখায়
     print(fr"""
 {C}    ___   _____        ____  __________  ______  _   __
 {C}   /   | / ___/       / __ \/ ____/ __ \/ ____/ / | / /
@@ -31,8 +26,7 @@ def check_status(url):
         color = G if status == 200 else (R if status >= 400 else Y)
         print(f"{D}[{color}{status}{D}]{RESET} {url}")
         return f"[{status}] {url}"
-    except:
-        return None
+    except: return None
 
 def run_recon():
     parser = argparse.ArgumentParser(description="AS-RECON Pro - High Speed Recon Tool")
@@ -45,7 +39,6 @@ def run_recon():
     if not args.silent: logo()
 
     try:
-        # Commands to run subfinder and gau
         cmd = f"subfinder -d {args.domain} -silent && gau --subs {args.domain}"
         process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         
@@ -54,9 +47,7 @@ def run_recon():
             if line.strip(): raw_urls.append(line.strip())
         
         unique_urls = list(set(raw_urls))
-        
-        if not args.silent:
-            print(f"{B}[INFO]{RESET} Found {Y}{len(unique_urls)}{RESET} unique URLs. Checking status...")
+        if not args.silent: print(f"{B}[INFO]{RESET} Found {Y}{len(unique_urls)}{RESET} unique URLs. Checking status...")
 
         results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
