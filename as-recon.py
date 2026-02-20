@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-import argparse
-import subprocess
-import os
-import sys
-import concurrent.futures
-import requests
+import argparse, subprocess, os, sys, concurrent.futures, requests
 
-# Color Codes
+# Professional Color Codes
 R, G, Y, B, C, W, D, RESET = '\033[1;31m', '\033[1;32m', '\033[1;33m', '\033[1;34m', '\033[1;36m', '\033[1;37m', '\033[1;30m', '\033[0m'
 
 def logo():
-    # স্ট্রিংয়ের আগে 'fr' যোগ করা হয়েছে যা SyntaxWarning চিরতরে বন্ধ করবে
     print(fr"""
 {C}    ___   _____        ____  __________  ______  _   __
 {C}   /   | / ___/       / __ \/ ____/ __ \/ ____/ / | / /
@@ -19,70 +13,60 @@ def logo():
 {C}/_/  |_/____/      /_/ |_/_____/\____/\____/_/ |_/   
 {D}                                             v4.0-Pro
 {D}--------------------------------------------------------
-{W}   Author  : {G}@hakspare (Ajijul Shohan)
+{W}   Author  : {G}@hakspare (Ajijul Islam Shohan)
 {W}   Feature : {G}Multi-threaded Status Checker
 {D}--------------------------------------------------------{RESET}
     """)
 
 def check_status(url):
     try:
-        # ৫ সেকেন্ড টাইমআউট রাখা হয়েছে যাতে টুলটি ফাস্ট থাকে
-        response = requests.get(url, timeout=5, allow_redirects=True)
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, timeout=5, allow_redirects=True, headers=headers)
         status = response.status_code
         color = G if status == 200 else (R if status >= 400 else Y)
         print(f"{D}[{color}{status}{D}]{RESET} {url}")
         return f"[{status}] {url}"
-    except:
-        return None
+    except: return None
 
 def run_recon():
     parser = argparse.ArgumentParser(description="AS-RECON Pro - High Speed Recon Tool")
-    parser.add_argument("-d", "--domain", help="Target domain (e.g. google.com)", required=True)
-    parser.add_argument("-o", "--output", help="Save results to a file")
-    parser.add_argument("-t", "--threads", help="Number of threads (Default 10)", type=int, default=10)
+    parser.add_argument("-d", "--domain", help="Target domain", required=True)
+    parser.add_argument("-o", "--output", help="Save results to file")
+    parser.add_argument("-t", "--threads", help="Number of threads", type=int, default=20)
     parser.add_argument("-s", "--silent", help="Show only URLs", action="store_true")
-
     args = parser.parse_args()
-    
-    if not args.silent:
-        logo()
-        print(f"{B}[INFO]{RESET} Fetching URLs for: {G}{args.domain}{RESET}")
-        print(f"{B}[INFO]{RESET} Threads: {Y}{args.threads}{RESET}")
-        print(f"{D}--------------------------------------------------------{RESET}")
+
+    if not args.silent: logo()
 
     try:
-        # সাবফাইন্ডার এবং গাউ রান করা হচ্ছে
+        if not args.silent: print(f"{B}[INFO]{RESET} Fetching data for: {G}{args.domain}{RESET}...")
+        
+        # Combined command to fetch data
         cmd = f"subfinder -d {args.domain} -silent && gau --subs {args.domain}"
-        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        raw_data = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL)
         
-        raw_urls = []
-        for line in process.stdout:
-            if line.strip():
-                raw_urls.append(line.strip())
+        urls = list(set([line.strip() for line in raw_data.splitlines() if line.strip()]))
         
-        unique_urls = list(set(raw_urls))
-        
-        if not args.silent:
-            print(f"{B}[INFO]{RESET} Found {Y}{len(unique_urls)}{RESET} unique URLs. Checking status...")
+        if not urls:
+            print(f"{R}[!] No URLs found.{RESET}"); sys.exit(0)
 
-        # মাল্টি-থ্রেডিং ইঞ্জিন (রকেট স্পিড)
+        if not args.silent:
+            print(f"{B}[INFO]{RESET} Found {Y}{len(urls)}{RESET} unique URLs. Checking status...\n")
+
         results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
-            future_to_url = {executor.submit(check_status, url): url for url in unique_urls}
+            future_to_url = {executor.submit(check_status, url): url for url in urls}
             for future in concurrent.futures.as_completed(future_to_url):
                 res = future.result()
-                if res:
-                    results.append(res)
+                if res: results.append(res)
 
         if args.output:
             with open(args.output, "w") as f:
-                for line in results:
-                    f.write(line + "\n")
-            print(f"\n{G}[SUCCESS]{RESET} Results saved in: {C}{args.output}{RESET}")
+                for r in results: f.write(r + "\n")
+            print(f"\n{G}[SUCCESS]{RESET} Results saved in: {args.output}")
 
-    except KeyboardInterrupt:
-        print(f"\n{R}[!] Stopped by user.{RESET}")
-        sys.exit()
+    except Exception as e:
+        print(f"{R}[!] Error: {e}{RESET}")
 
 if __name__ == "__main__":
     run_recon()
