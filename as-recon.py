@@ -2,13 +2,13 @@
 import requests, urllib3, sys, concurrent.futures, re, time, argparse, socket, hashlib, string
 from random import choices
 
-# Disable SSL Warnings
+# SSL এরর মেসেজ বন্ধ করার জন্য
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- Professional Colors ---
+# --- কালার এবং স্টাইলিং ---
 C, G, Y, R, M, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[95m', '\033[0m', '\033[1m'
 
-# --- The Mega Logo ---
+# --- প্রফেশনাল ASCII লোগো ---
 LOGO = f"""{C}{B}
    ▄▄▄· .▄▄ ·      ▄▄▄▄▄▄▄▄ . ▄▄·       ▐ ▄ 
   ▐█ ▀█ ▐█ ▀. ▪     •██  ▀▄.▀·▐█ ▄·▪     •█▌▐█
@@ -100,7 +100,7 @@ def main():
     if not clean_list:
         print(f"{R}[!] Discovery phase failed to find data.{W}")
     else:
-        print(f"{G}[+]{W} Total Potential Targets: {B}{len(clean_list)}{W}\n")
+        print(f"{G}[+]{W} Total Unique Candidates: {B}{len(clean_list)}{W}\n")
         if args.live:
             with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
                 jobs = [executor.submit(check_live_ultimate, s, intel) for s in clean_list]
@@ -110,12 +110,12 @@ def main():
                         print(res[0])
                         final_results.append(res[1])
         else:
-            # এখানে ফিক্স করা হয়েছে: লিস্টে অ্যাড না করলে সামারি জিরো আসতো
+            # ইউজারদের জন্য সামারি বক্স ট্রিগার করতে এখানে রেজাল্ট সেভ করা হয়েছে
             for s in clean_list:
                 print(f" {C}»{W} {s}")
                 final_results.append(s)
 
-    # --- THE SUMMARY BOX (Always Show Fix) ---
+    # --- সামারি বক্স (সব ইউজারের জন্য ফিক্স) ---
     end_time = time.time()
     duration = round(end_time - start_time, 2)
     
@@ -124,7 +124,7 @@ def main():
     print(f"{G}├──────────────────────────────────────────────┤{W}")
     print(f"{G}│{W}  {C}Total Found   :{W} {B}{len(final_results):<10}{W}             {G}│{W}")
     print(f"{G}│{W}  {C}Time Elapsed  :{W} {B}{duration:<10} seconds{W}     {G}│{W}")
-    if args.output:
+    if args.output and final_results:
         print(f"{G}│{W}  {C}Saved To      :{W} {B}{args.output:<20}{W}   {G}│{W}")
         with open(args.output, "w") as f:
             f.write("\n".join(sorted(list(set(final_results)))))
