@@ -2,13 +2,13 @@
 import requests, urllib3, sys, concurrent.futures, re, time, argparse, socket, hashlib, string
 from random import choices
 
-# SSL Warning Disable
+# SSL এরর মেসেজ হাইড করার জন্য
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- Pro Styling & Colors ---
+# --- কালার এবং স্টাইলিং ---
 C, G, Y, R, M, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[95m', '\033[0m', '\033[1m'
 
-# --- Mega Logo ---
+# --- প্রফেশনাল ASCII লোগো ---
 LOGO = f"""{C}{B}
    ▄▄▄· .▄▄ ·      ▄▄▄▄▄▄▄▄ . ▄▄·       ▐ ▄ 
   ▐█ ▀█ ▐█ ▀. ▪     •██  ▀▄.▀·▐█ ▄·▪     •█▌▐█
@@ -27,7 +27,7 @@ class Intelligence:
         self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AS-Recon/10.2"
 
     def setup_wildcard_filter(self):
-        """Wildcard DNS Detection Logic"""
+        """ভুয়া সাবডোমেইন ধরার জন্য ওয়াইল্ডকার্ড ডিটেকশন"""
         for _ in range(3):
             rand = "".join(choices(string.ascii_lowercase, k=15)) + "." + self.domain
             try:
@@ -49,13 +49,16 @@ def fetch_source(url, domain):
 
 def check_live_ultimate(subdomain, intel):
     try:
+        # DNS আইপি চেক
         ip = socket.gethostbyname(subdomain)
         if ip in intel.wildcard_ips: return None
         if not subdomain.endswith(intel.domain): return None
 
+        # HTTP প্রোপিং
         url = f"http://{subdomain}"
         r = requests.get(url, timeout=4, verify=False, allow_redirects=True, headers={"User-Agent": intel.ua})
         
+        # কন্টেন্ট হ্যাশ চেক
         if hashlib.md5(r.content).hexdigest() == intel.wildcard_hash: return None
 
         server = r.headers.get('Server', 'Hidden')[:12]
@@ -68,7 +71,7 @@ def check_live_ultimate(subdomain, intel):
     except: return None
 
 def main():
-    start_time = time.time() # Start stopwatch
+    start_time = time.time() # সময় গণনা শুরু
     print(LOGO)
     
     parser = argparse.ArgumentParser()
@@ -119,7 +122,7 @@ def main():
                 print(f" {C}»{W} {s}")
                 final_results.append(s)
 
-    # --- Summary Box Logic ---
+    # --- সামারি বক্স জেনারেটর (ফাইনাল ফিক্স) ---
     end_time = time.time()
     duration = round(end_time - start_time, 2)
     
@@ -128,8 +131,8 @@ def main():
     print(f"{G}├──────────────────────────────────────────────┤{W}")
     print(f"{G}│{W}  {C}Total Found   :{W} {B}{len(final_results):<10}{W}             {G}│{W}")
     print(f"{G}│{W}  {C}Time Elapsed  :{W} {B}{duration:<10} seconds{W}     {G}│{W}")
-    if args.output and final_results:
-        print(f"{G}│{W}  {C}Output File   :{W} {B}{args.output:<20}{W}   {G}│{W}")
+    if args.output:
+        print(f"{G}│{W}  {C}Saved To      :{W} {B}{args.output:<20}{W}   {G}│{W}")
         with open(args.output, "w") as f:
             f.write("\n".join(sorted(list(set(final_results)))))
     print(f"{G}└──────────────────────────────────────────────┘{W}")
