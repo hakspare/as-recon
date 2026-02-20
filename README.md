@@ -38,7 +38,7 @@ AS-RECON Pro is tested and fully compatible with:
 Open your terminal and execute the following commands:
 ```bash
 # Clone the repository
-git clone [https://github.com/hakspare/as-recon](https://github.com/hakspare/as-recon)
+git clone https://github.com/hakspare/as-recon 
 
 # Enter the directory
 cd as-recon
@@ -52,7 +52,7 @@ sudo ./setup.shhere
 ​Ensure you have Termux installed from F-Droid, then run:
 
 pkg update && pkg upgrade -y
-git clone [https://github.com/hakspare/as-recon](https://github.com/hakspare/as-recon)
+git clone https://github.com/hakspare/as-recon
 cd as-recon
 chmod +x setup.sh
 ./setup.sh
