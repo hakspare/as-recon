@@ -1,110 +1,42 @@
-#!/usr/bin/env python3
-import argparse
-import subprocess
-import os
-import sys
-import concurrent.futures
-import requests
+#!/bin/bash
 
-# Professional Color Codes
-R = '\033[1;31m' # Red
-G = '\033[1;32m' # Green
-Y = '\033[1;33m' # Yellow
-B = '\033[1;34m' # Blue
-C = '\033[1;36m' # Cyan
-W = '\033[1;37m' # White
-D = '\033[1;30m' # Dark Gray
-RESET = '\033[0m'
+# Path Detection
+if [ -d "/data/data/com.termux/files/usr/bin" ]; then
+    BIN_DIR="$PREFIX/bin"
+    OS="android"
+    ARCH="arm64"
+else
+    BIN_DIR="/usr/bin"
+    OS="linux"
+    ARCH="amd64"
+    SUDO="sudo"
+fi
 
-def logo():
-    print(f"""
-{C}    ___   _____        ____  __________  ______  _   __
-{C}   /   | / ___/       / __ \/ ____/ __ \/ ____/ / | / /
-{C}  / /| | \__ \______ / /_/ / __/ / / / / /   /  |/ / 
-{C} / ___ |___/ /_____// _, _/ /___/ /_/ / /___/ /|  /  
-{C}/_/  |_/____/      /_/ |_/_____/\____/\____/_/ |_/   
-{D}                                             v4.0-Pro
-{D}--------------------------------------------------------
-{W}   Author  : {G}@hakspare (Ajijul Shohan)
-{W}   Feature : {G}Multi-threaded Status Checker
-{D}--------------------------------------------------------{RESET}
-    """)
+# Dependencies
+if [ "$OS" = "android" ]; then
+    pkg install curl unzip tar python python-pip -y
+    pip install requests
+else
+    $SUDO apt update && $SUDO apt install curl unzip tar python3 python3-pip -y
+    $SUDO pip3 install requests --break-system-packages 2>/dev/null || pip3 install requests
+fi
 
-# Function to check HTTP Status
-def check_status(url):
-    try:
-        # Status checking logic with timeout
-        response = requests.get(url, timeout=5, allow_redirects=True)
-        status = response.status_code
-        
-        if status == 200:
-            color = G
-        elif status >= 400:
-            color = R
-        else:
-            color = Y
-            
-        print(f"{D}[{color}{status}{D}]{RESET} {url}")
-        return f"[{status}] {url}"
-    except:
-        return None
+# Binary Installation Function
+install_tool() {
+    curl -sL "$2" -o "${1}.zip" || curl -sL "$2" -o "${1}.tar.gz"
+    if [[ "$2" == *.zip ]]; then unzip -oq "${1}.zip"; else tar -xzf "${1}.tar.gz"; fi
+    find . -maxdepth 1 -type f -name "$1*" -not -name "*.md" -exec $SUDO mv {} $BIN_DIR/$1 \;
+    $SUDO chmod +x $BIN_DIR/$1
+    rm "${1}.zip" "${1}.tar.gz" 2>/dev/null
+}
 
-def run_recon():
-    parser = argparse.ArgumentParser(description="AS-RECON Pro - High Speed Recon Tool")
-    parser.add_argument("-d", "--domain", help="Target domain", required=True)
-    parser.add_argument("-o", "--output", help="Save results to file")
-    parser.add_argument("-t", "--threads", help="Number of threads (Default 10)", type=int, default=10)
-    parser.add_argument("-s", "--silent", help="Show only URLs", action="store_true")
+# Fast Download
+install_tool "subfinder" "https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/subfinder_2.6.6_${OS}_${ARCH}.zip" &
+install_tool "httpx" "https://github.com/projectdiscovery/httpx/releases/download/v1.6.0/httpx_1.6.0_${OS}_${ARCH}.zip" &
+install_tool "gau" "https://github.com/lc/gau/releases/download/v2.2.3/gau_2.2.3_${OS}_${ARCH}.tar.gz" &
+wait
 
-    if len(sys.argv) == 1:
-        logo()
-        parser.print_help()
-        sys.exit(1)
-
-    args = parser.parse_args()
-    
-    if not args.silent:
-        logo()
-        print(f"{B}[INFO]{RESET} Fetching URLs for: {G}{args.domain}{RESET}")
-        print(f"{B}[INFO]{RESET} Threads: {Y}{args.threads}{RESET}")
-        print(f"{D}--------------------------------------------------------{RESET}")
-
-    try:
-        # Using subfinder and gau binaries from your new setup.sh
-        cmd = f"subfinder -d {args.domain} -silent && gau --subs {args.domain}"
-        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        
-        raw_urls = []
-        for line in process.stdout:
-            if line.strip():
-                raw_urls.append(line.strip())
-        
-        unique_urls = list(set(raw_urls))
-        
-        if not args.silent:
-            print(f"{B}[INFO]{RESET} Total URLs found: {Y}{len(unique_urls)}{RESET}")
-            print(f"{B}[INFO]{RESET} Checking Status Codes... (Please wait)")
-            print(f"{D}--------------------------------------------------------{RESET}")
-
-        # Multi-threading Engine for speed
-        results = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
-            future_to_url = {executor.submit(check_status, url): url for url in unique_urls}
-            for future in concurrent.futures.as_completed(future_to_url):
-                res = future.result()
-                if res:
-                    results.append(res)
-
-        # Output Management
-        if args.output:
-            with open(args.output, "w") as f:
-                for line in results:
-                    f.write(line + "\n")
-            print(f"\n{G}[SUCCESS]{RESET} Results saved in: {C}{args.output}{RESET}")
-
-    except KeyboardInterrupt:
-        print(f"\n{R}[!] Stopped by user.{RESET}")
-        sys.exit()
-
-if __name__ == "__main__":
-    run_recon()
+# Final Symlink
+$SUDO cp as-recon.py $BIN_DIR/as-recon
+$SUDO chmod +x $BIN_DIR/as-recon
+echo -e "\e[1;32m[+] AS-RECON Permanently Fixed and Installed!\e[0m"
