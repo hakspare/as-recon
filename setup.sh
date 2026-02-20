@@ -1,22 +1,18 @@
 #!/bin/bash
 
-echo "[*] Starting Fast Installation for AS-RECON Pro..."
+# কালার
+G='\033[92m' ; W='\033[0m' ; C='\033[96m'
 
-# প্রয়োজনীয় প্যাকেজ চেক এবং ইনস্টল
-if command -v python3 &>/dev/null; then
-    echo "[✓] Python3 found."
-else
-    echo "[!] Installing Python3..."
-    pkg install python -y || apt install python3 -y
-fi
+echo -e "${C}[*] AS-RECON Ultimate v5.0 Installer Initializing...${W}"
 
-# শুধু প্রয়োজনীয় লাইব্রেরি ইনস্টল (Storage সাশ্রয় করতে)
-echo "[*] Installing Lightweight Dependencies..."
-pip install requests urllib3 --no-cache-dir
+# Python & Depedencies
+pkg install python -y &>/dev/null
+pip install requests urllib3 --no-cache-dir &>/dev/null
 
-# গ্লোবাল কমান্ড সেটআপ (যাতে যেকোনো জায়গা থেকে 'as-recon' লিখলেই চলে)
+# কমান্ড হিসেবে সেটআপ করা
+sed -i '1i #!/usr/bin/env python3' as-recon.py
+chmod +x as-recon.py
 cp as-recon.py $PREFIX/bin/as-recon
-chmod +x $PREFIX/bin/as-recon
 
-echo "[✓] Installation Complete in < 60 Seconds!"
-echo "[*] Usage: as-recon -d google.com"
+echo -e "${G}[✓] Global Command 'as-recon' Installed Successfully!${W}"
+echo -e "${C}[*] Type 'as-recon -h' for help menu.${W}"
