@@ -2,6 +2,7 @@
 import requests, urllib3, sys, concurrent.futures, re, time, argparse, socket, hashlib, string
 from random import choices
 
+# Disable SSL Warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --- Pro Styling & Colors ---
@@ -26,6 +27,7 @@ class Intelligence:
         self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AS-Recon/10.2"
 
     def setup_wildcard_filter(self):
+        """DNS & Content Fingerprinting to eliminate False Positives"""
         for _ in range(3):
             rand = "".join(choices(string.ascii_lowercase, k=15)) + "." + self.domain
             try:
@@ -38,13 +40,18 @@ class Intelligence:
 
 def check_live_ultimate(subdomain, intel):
     try:
+        # 1. Strict DNS Filter
         ip = socket.gethostbyname(subdomain)
         if ip in intel.wildcard_ips: return None
+
+        # 2. Domain Integrity Check
         if not subdomain.endswith(intel.domain): return None
 
+        # 3. HTTP Probe
         url = f"http://{subdomain}"
         r = requests.get(url, timeout=4, verify=False, allow_redirects=True, headers={"User-Agent": intel.ua})
         
+        # 4. Hash-based Content Filter
         if hashlib.md5(r.content).hexdigest() == intel.wildcard_hash: return None
 
         server = r.headers.get('Server', 'Hidden')[:12]
@@ -52,7 +59,7 @@ def check_live_ultimate(subdomain, intel):
         sc = r.status_code
         color = G if sc == 200 else Y if sc in [403, 401] else R
         
-        display = f" {C}»{W} {subdomain.ljust(30)} {B}{color}[{sc}]{W} {M}({cdn}){W} {G}[{ip}]{W} {Y}({server}){W}"
+        display = f" {C}»{W} {subdomain.ljust(35)} {B}{color}[{sc}]{W} {M}({cdn}){W} {G}[{ip}]{W} {Y}({server}){W}"
         return (display, subdomain)
     except: return None
 
@@ -66,12 +73,14 @@ def fetch_source(url, domain):
     return []
 
 def main():
-    print(LOGO) # লোগো প্রিন্ট নিশ্চিত করা হলো
+    start_time = time.time()
+    print(LOGO)
+    
     parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--domain", required=True)
-    parser.add_argument("-o", "--output")
-    parser.add_argument("-t", "--threads", type=int, default=50)
-    parser.add_argument("--live", action="store_true")
+    parser.add_argument("-d", "--domain", required=True, help="Target Domain")
+    parser.add_argument("-o", "--output", help="Output File Path")
+    parser.add_argument("-t", "--threads", type=int, default=50, help="Threads Count")
+    parser.add_argument("--live", action="store_true", help="Perform Live Probing")
     args = parser.parse_args()
 
     target = args.domain
@@ -79,7 +88,7 @@ def main():
     
     print(f"{B}{C}[*] Initializing Intelligence on: {target}{W}")
     if intel.setup_wildcard_filter():
-        print(f"{R}[!] Wildcard Detected. Sentinel Filtering Enabled.{W}")
+        print(f"{R}[!] Wildcard Hosting Detected. Strict Filtering Active.{W}")
 
     sources = [
         f"https://crt.sh/?q=%25.{target}",
@@ -97,10 +106,10 @@ def main():
 
     clean_list = sorted(list(set([s for s in raw_subs if target in s])))
     if not clean_list: 
-        print(f"{R}[!] No subdomains found for {target}.{W}")
+        print(f"{R}[!] No results found for {target}.{W}")
         return
 
-    print(f"{G}[+]{W} Total Potential Targets: {B}{len(clean_list)}{W}\n")
+    print(f"{G}[+]{W} Total Unique Candidates: {B}{len(clean_list)}{W}\n")
 
     final_results = []
     if args.live:
@@ -116,10 +125,20 @@ def main():
             print(f" {C}»{W} {s}")
             final_results.append(s)
 
-    if args.output and final_results:
+    # --- Summary Box Calculation ---
+    end_time = time.time()
+    duration = round(end_time - start_time, 2)
+    
+    print(f"\n{G}┌──────────────────────────────────────────────┐{W}")
+    print(f"{G}│{W}  {B}SCAN SUMMARY{W}                             {G}│{W}")
+    print(f"{G}├──────────────────────────────────────────────┤{W}")
+    print(f"{G}│{W}  {C}Targets Found  :{W} {B}{len(final_results):<10}{W}             {G}│{W}")
+    print(f"{G}│{W}  {C}Time Taken     :{W} {B}{duration:<10} seconds{W}     {G}│{W}")
+    if args.output:
+        print(f"{G}│{W}  {C}Saved To       :{W} {B}{args.output:<20}{W}   {G}│{W}")
         with open(args.output, "w") as f:
             f.write("\n".join(sorted(list(set(final_results)))))
-        print(f"\n{G}[✓] Successfully saved {len(final_results)} domains to: {B}{args.output}{W}")
+    print(f"{G}└──────────────────────────────────────────────┘{W}")
 
 if __name__ == "__main__":
     main()
