@@ -1,57 +1,36 @@
 #!/bin/bash
 
-# --- Color Palette ---
+# --- Colors ---
 G='\033[92m'
-C='\033[96m'
-Y='\033[93m'
 R='\033[91m'
-W='\033[0m'
 B='\033[1m'
+W='\033[0m'
 
-clear
+echo -e "${G}${B}[*] AS-RECON v10.2 Global Deployment...${W}"
 
-echo -e "${C}${B}>> AS-RECON v10.2.1: Critical Syntax Fix <<${W}"
-echo -e "${G}--------------------------------------------------------${W}"
+# ১. পুরনো সব ফাইল পরিষ্কার করা (যাতে কোনো এরর না থাকে)
+rm -rf $PREFIX/bin/as-recon
+rm -rf /usr/local/bin/as-recon
 
-# 1. Detect Path
-BIN_PATH="/usr/local/bin"
+# ২. পাইথন ডিপেন্ডেন্সি চেক
+echo -e "${G}[*] Installing required modules...${W}"
+pip install requests urllib3
+
+# ৩. মেইন ফাইলকে এক্সিকিউটেবল করা
+chmod +x as-recon.py
+
+# ৪. ইউজারের সিস্টেম অনুযায়ী কমান্ড সেট করা
 if [ -d "$PREFIX/bin" ]; then
-    BIN_PATH="$PREFIX/bin"
-    OS="Termux"
+    # টারমাক্স (Termux) ইউজারদের জন্য
+    cp as-recon.py $PREFIX/bin/as-recon
+    chmod +x $PREFIX/bin/as-recon
+    echo -e "${G}[✓] AS-RECON is now a global command in Termux!${W}"
 else
-    OS="Linux/Kali"
+    # লিনাক্স (Linux/Kali) ইউজারদের জন্য
+    sudo cp as-recon.py /usr/local/bin/as-recon
+    sudo chmod +x /usr/local/bin/as-recon
+    echo -e "${G}[✓] AS-RECON is now a global command in Linux!${W}"
 fi
 
-echo -e "${C}[*] System detected: ${Y}$OS${W}"
-
-# 2. Cleanup
-echo -e "${C}[*] Removing legacy binaries...${W}"
-rm -f "$BIN_PATH/as-recon"
-
-# 3. Dependency Check
-echo -e "${C}[*] Ensuring Python modules...${W}"
-pip install requests urllib3 argparse --no-cache-dir &>/dev/null
-
-# 4. Install new version
-PY_FILE="as-recon.py"
-
-if [ -f "$PY_FILE" ]; then
-    echo -e "${C}[*] Configuring global access...${W}"
-    chmod +x "$PY_FILE"
-    
-    if [ "$OS" == "Termux" ]; then
-        cp "$PY_FILE" "$BIN_PATH/as-recon"
-        chmod +x "$BIN_PATH/as-recon"
-    else
-        sudo cp "$PY_FILE" "$BIN_PATH/as-recon"
-        sudo chmod +x "$BIN_PATH/as-recon"
-    fi
-    echo -e "${G}[✓] Binary linked successfully!${W}"
-else
-    echo -e "${R}[!] Error: $PY_FILE not found!${W}"
-    exit 1
-fi
-
-echo -e "${G}--------------------------------------------------------${W}"
-echo -e "${G}${B}[✓] v10.2.1 DEPLOYED!${W}"
-echo -e "Run: ${C}as-recon -d renesabazar.com --live -o ll.txt${W}"
+echo -e "\n${B}${G}Successfully Updated to v10.2!${W}"
+echo -e "${B}Usage: as-recon -d domain.com${W}"
