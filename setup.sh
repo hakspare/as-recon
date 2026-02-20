@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Path Detection
+# ১. ওএস এবং পাথ ডিটেকশন
 if [ -d "/data/data/com.termux/files/usr/bin" ]; then
     BIN_DIR="$PREFIX/bin"
     OS="android"
@@ -12,16 +12,16 @@ else
     SUDO="sudo"
 fi
 
-# Dependencies
+# ২. পাইথন লাইব্রেরি ইনস্টল (ইউজারের কোনো এরর আসবে না)
 if [ "$OS" = "android" ]; then
-    pkg install curl unzip tar python python-pip -y
+    pkg install python python-pip -y
     pip install requests
 else
-    $SUDO apt update && $SUDO apt install curl unzip tar python3 python3-pip -y
+    $SUDO apt update && $SUDO apt install python3 python3-pip -y
     $SUDO pip3 install requests --break-system-packages 2>/dev/null || pip3 install requests
 fi
 
-# Binary Installation Function
+# ৩. বাইনারি টুলস ইনস্টল ফাংশন
 install_tool() {
     curl -sL "$2" -o "${1}.zip" || curl -sL "$2" -o "${1}.tar.gz"
     if [[ "$2" == *.zip ]]; then unzip -oq "${1}.zip"; else tar -xzf "${1}.tar.gz"; fi
@@ -30,13 +30,14 @@ install_tool() {
     rm "${1}.zip" "${1}.tar.gz" 2>/dev/null
 }
 
-# Fast Download
+# ৪. প্যারালাল ইনস্টলেশন
 install_tool "subfinder" "https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/subfinder_2.6.6_${OS}_${ARCH}.zip" &
 install_tool "httpx" "https://github.com/projectdiscovery/httpx/releases/download/v1.6.0/httpx_1.6.0_${OS}_${ARCH}.zip" &
 install_tool "gau" "https://github.com/lc/gau/releases/download/v2.2.3/gau_2.2.3_${OS}_${ARCH}.tar.gz" &
 wait
 
-# Final Symlink
+# ৫. ফাইনাল লিঙ্ক ফিক্স (ইউজারের জন্য স্থায়ী সমাধান)
 $SUDO cp as-recon.py $BIN_DIR/as-recon
 $SUDO chmod +x $BIN_DIR/as-recon
-echo -e "\e[1;32m[+] AS-RECON Permanently Fixed and Installed!\e[0m"
+
+echo -e "\e[1;32m[✓] AS-RECON Pro has been successfully installed for you!\e[0m"
