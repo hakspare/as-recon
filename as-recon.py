@@ -4,16 +4,18 @@ from random import choices
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- Professional Logo & Colors ---
+# --- Pro Styling & Colors ---
 C, G, Y, R, M, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[95m', '\033[0m', '\033[1m'
 
+# --- The Mega Logo ---
 LOGO = f"""{C}{B}
    ▄▄▄· .▄▄ ·      ▄▄▄▄▄▄▄▄ . ▄▄·       ▐ ▄ 
   ▐█ ▀█ ▐█ ▀. ▪     •██  ▀▄.▀·▐█ ▄·▪     •█▌▐█
   ▄█▀▀█ ▄▀▀▀█▄ ▄█▀▄  ▐█.▪▐▀▀▪▄██▀▀█▄█▀▄  ▐█▐▐▌
   ▐█ ▪▐▌▐█▄▪▐█▐█▌.▐▌ ▐█▌·▐█▄▄▌▐█ ▪▐█▐█▌.▐▌██▐█▌
    ▀  ▀  ▀▀▀▀  ▀█▄▀▪ ▀▀▀  ▀▀▀  ▀  ▀ ▀█▄▀▪▀▀ █▪
-{Y}        >> AS-RECON v10.2: Overlord Edition <<{W}
+{Y}        >> AS-RECON v10.2: Overlord Engine <<{W}
+{G}      Developed by Ajijul Islam Shohan (@hakspare){W}
 """
 
 class Intelligence:
@@ -24,7 +26,6 @@ class Intelligence:
         self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AS-Recon/10.2"
 
     def setup_wildcard_filter(self):
-        """DNS & Content Fingerprinting to kill False Positives"""
         for _ in range(3):
             rand = "".join(choices(string.ascii_lowercase, k=15)) + "." + self.domain
             try:
@@ -37,23 +38,17 @@ class Intelligence:
 
 def check_live_ultimate(subdomain, intel):
     try:
-        # 1. Strict DNS Filter
         ip = socket.gethostbyname(subdomain)
         if ip in intel.wildcard_ips: return None
-
-        # 2. Domain Integrity Check (Remove junk like test.com.target.com)
         if not subdomain.endswith(intel.domain): return None
 
-        # 3. HTTP Probe
         url = f"http://{subdomain}"
         r = requests.get(url, timeout=4, verify=False, allow_redirects=True, headers={"User-Agent": intel.ua})
         
-        # 4. Hash-based Content Filter
         if hashlib.md5(r.content).hexdigest() == intel.wildcard_hash: return None
 
         server = r.headers.get('Server', 'Hidden')[:12]
         cdn = "CF" if "cloudflare" in server.lower() or "cf-ray" in r.headers else "Direct"
-        
         sc = r.status_code
         color = G if sc == 200 else Y if sc in [403, 401] else R
         
@@ -71,7 +66,7 @@ def fetch_source(url, domain):
     return []
 
 def main():
-    print(LOGO)
+    print(LOGO) # লোগো প্রিন্ট নিশ্চিত করা হলো
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--domain", required=True)
     parser.add_argument("-o", "--output")
@@ -82,9 +77,9 @@ def main():
     target = args.domain
     intel = Intelligence(target)
     
-    print(f"{B}[*] Initializing Intelligence on: {target}{W}")
+    print(f"{B}{C}[*] Initializing Intelligence on: {target}{W}")
     if intel.setup_wildcard_filter():
-        print(f"{R}[!] Wildcard Hosting Detected. Strict Filtering Active.{W}")
+        print(f"{R}[!] Wildcard Detected. Sentinel Filtering Enabled.{W}")
 
     sources = [
         f"https://crt.sh/?q=%25.{target}",
@@ -94,16 +89,18 @@ def main():
     ]
 
     raw_subs = set()
-    print(f"{C}[*] Collecting Subdomains from 18+ Sources...{W}")
+    print(f"{Y}[*] Hunting Subdomains from 18+ Sources...{W}")
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_source, url, target): url for url in sources}
         for f in concurrent.futures.as_completed(futures):
             raw_subs.update(f.result())
 
     clean_list = sorted(list(set([s for s in raw_subs if target in s])))
-    if not clean_list: return
+    if not clean_list: 
+        print(f"{R}[!] No subdomains found for {target}.{W}")
+        return
 
-    print(f"{G}[+]{W} Total Potential Targets: {len(clean_list)}\n")
+    print(f"{G}[+]{W} Total Potential Targets: {B}{len(clean_list)}{W}\n")
 
     final_results = []
     if args.live:
@@ -122,7 +119,7 @@ def main():
     if args.output and final_results:
         with open(args.output, "w") as f:
             f.write("\n".join(sorted(list(set(final_results)))))
-        print(f"\n{G}[✓] Successfully saved {len(final_results)} domains to: {args.output}{W}")
+        print(f"\n{G}[✓] Successfully saved {len(final_results)} domains to: {B}{args.output}{W}")
 
 if __name__ == "__main__":
     main()
