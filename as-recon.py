@@ -6,11 +6,11 @@ import sys
 import concurrent.futures
 import requests
 
-# Color Codes
+# Professional Color Codes
 R, G, Y, B, C, W, D, RESET = '\033[1;31m', '\033[1;32m', '\033[1;33m', '\033[1;34m', '\033[1;36m', '\033[1;37m', '\033[1;30m', '\033[0m'
 
 def logo():
-    # 'fr' string syntax to fix all escape sequence warnings
+    # 'fr' fixes the SyntaxWarning by treating the logo as a raw string
     print(fr"""
 {C}    ___   _____        ____  __________  ______  _   __
 {C}   /   | / ___/       / __ \/ ____/ __ \/ ____/ / | / /
@@ -36,8 +36,8 @@ def check_status(url):
 
 def run_recon():
     parser = argparse.ArgumentParser(description="AS-RECON Pro - High Speed Recon Tool")
-    parser.add_argument("-d", "--domain", help="Target domain", required=True)
-    parser.add_argument("-o", "--output", help="Save results to file")
+    parser.add_argument("-d", "--domain", help="Target domain (e.g. google.com)", required=True)
+    parser.add_argument("-o", "--output", help="Save results to a file")
     parser.add_argument("-t", "--threads", help="Number of threads (Default 10)", type=int, default=10)
     parser.add_argument("-s", "--silent", help="Show only URLs", action="store_true")
 
@@ -45,7 +45,7 @@ def run_recon():
     if not args.silent: logo()
 
     try:
-        # Commands using binaries installed by setup.sh
+        # Commands to run subfinder and gau
         cmd = f"subfinder -d {args.domain} -silent && gau --subs {args.domain}"
         process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         
@@ -68,7 +68,7 @@ def run_recon():
         if args.output:
             with open(args.output, "w") as f:
                 for line in results: f.write(line + "\n")
-            print(f"\n{G}[SUCCESS]{RESET} Saved to: {args.output}")
+            print(f"\n{G}[SUCCESS]{RESET} Results saved in: {args.output}")
 
     except KeyboardInterrupt:
         print(f"\n{R}[!] Stopped by user.{RESET}")
