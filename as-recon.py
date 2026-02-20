@@ -14,7 +14,7 @@ def logo():
 {C}/_/  |_/____/      /_/ |_/_____/\____/\____/_/ |_/   
 {D}                                             v4.0-Pro
 {D}--------------------------------------------------------
-{W}   Author  : {G}@hakspare (Ajijul Shohan)
+{W}   Author  : {G}@hakspare (Ajijul Islam Shohan)
 {W}   Feature : {G}Multi-threaded Status Checker
 {D}--------------------------------------------------------{RESET}
     """)
