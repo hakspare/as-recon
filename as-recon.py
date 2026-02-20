@@ -1,73 +1,104 @@
 #!/usr/bin/env python3
-import requests, urllib3, sys, concurrent.futures, re, time, threading
+import requests, urllib3, sys, concurrent.futures, re, time, os
+from random import choice
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- Styling ---
-C, G, Y, R, M, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[95m', '\033[0m', '\033[1m'
+# --- High-End Styling ---
+C = '\033[96m' ; G = '\033[92m' ; Y = '\033[93m' 
+R = '\033[91m' ; M = '\033[95m' ; W = '\033[0m' ; B = '\033[1m'
 
-BANNER = rf"""
-{C}   ▄▄▄· .▄▄ ·      ▄▄▄▄▄▄▄▄ . ▄▄·       ▐ ▄ 
-{C}  ▐█ ▀█ ▐█ ▀. ▪     •██  ▀▄.▀·▐█ ▄·▪     •█▌▐█
-{C}  ▄█▀▀█ ▄▀▀▀█▄ ▄█▀▄  ▐█.▪▐▀▀▪▄██▀▀█▄█▀▄ ▐█▐▐▌
-{C}  ▐█ ▪▐▌▐█▄▪▐█▐█▌.▐▌ ▐█▌·▐█▄▄▌▐█ ▪▐█▐█▌.▐▌██▐█▌
-{C}   ▀  ▀  ▀▀▀▀  ▀█▄▀▪ ▀▀▀  ▀▀▀  ▀  ▀ ▀█▄▀▪▀▀ █▪
-{M}  >> {W}{B}Professional Reconnaissance Engine {M}<<{W}
+def get_banner():
+    colors = [C, G, Y, M]
+    clr = choice(colors)
+    return rf"""
+{clr}{B}   ▄▄▄· .▄▄ ·      ▄▄▄▄▄▄▄▄ . ▄▄·       ▐ ▄ 
+{clr}  ▐█ ▀█ ▐█ ▀. ▪     •██  ▀▄.▀·▐█ ▄·▪     •█▌▐█
+{clr}  ▄█▀▀█ ▄▀▀▀█▄ ▄█▀▄  ▐█.▪▐▀▀▪▄██▀▀█▄█▀▄ ▐█▐▐▌
+{clr}  ▐█ ▪▐▌▐█▄▪▐█▐█▌.▐▌ ▐█▌·▐█▄▄▌▐█ ▪▐█▐█▌.▐▌██▐█▌
+{clr}   ▀  ▀  ▀▀▀▀  ▀█▄▀▪ ▀▀▀  ▀▀▀  ▀  ▀ ▀█▄▀▪▀▀ █▪
+{W}{B}     >> Advanced Reconnaissance & URL Hunter <<{W}
+{G}--------------------------------------------------------
+{Y}  Author  : {W}@hakspare (Ajijul Islam Shohan)
+{Y}  Version : {G}5.0-Ultimate (Better than Amass/Subfinder)
+{G}--------------------------------------------------------{W}
 """
 
-def fetch_data(url, domain):
-    headers = {'User-Agent': 'Mozilla/5.0'}
+def fetch_logic(url, domain):
+    ua = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Mozilla/5.0 (X11; Linux x86_64)']
     try:
-        response = requests.get(url, headers=headers, timeout=10, verify=False)
-        if response.status_code == 200:
-            return re.findall(r'(?:[a-zA-Z0-9-]+\.)+' + re.escape(domain), response.text)
+        res = requests.get(url, headers={'User-Agent': choice(ua)}, timeout=10, verify=False)
+        if res.status_code == 200:
+            # Nikto/Wayback স্টাইল পাওয়ারফুল এক্সট্রাকশন
+            return re.findall(r'(?:[a-zA-Z0-9-]+\.)+' + re.escape(domain), res.text)
     except: pass
     return []
 
-def run_recon(domain):
-    print(f"{C}[*] Scanning {B}{domain}{W} across multiple sources...")
+def run_ultimate_recon(target):
+    print(f"{C}[*] {W}Engaging {B}Multi-Source Engine{W} for: {G}{target}{W}\n")
+    
+    # ১২টি পাওয়ারফুল সোর্স (Amass + Subfinder + Wayback এর কম্বিনেশন)
     sources = [
-        f"https://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=txt&fl=original&collapse=urlkey",
-        f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns",
-        f"https://api.hackertarget.com/hostsearch/?q={domain}",
-        f"https://crt.sh/?q=%25.{domain}&output=json",
-        f"https://api.subdomain.center/api/index.php?domain={domain}",
-        f"https://sonar.omnisint.io/subdomains/{domain}",
-        f"https://jldc.me/anubis/subdomains/{domain}"
+        f"https://web.archive.org/cdx/search/cdx?url=*.{target}/*&output=txt&fl=original&collapse=urlkey",
+        f"https://otx.alienvault.com/api/v1/indicators/domain/{target}/passive_dns",
+        f"https://api.hackertarget.com/hostsearch/?q={target}",
+        f"https://crt.sh/?q=%25.{target}&output=json",
+        f"https://api.subdomain.center/api/index.php?domain={target}",
+        f"https://sonar.omnisint.io/subdomains/{target}",
+        f"https://jldc.me/anubis/subdomains/{target}",
+        f"https://api.threatminer.org/v2/domain.php?q={target}&rt=5",
+        f"https://urlscan.io/api/v1/search/?q=domain:{target}",
+        f"https://index.commoncrawl.org/CC-MAIN-2023-50-index?url=*.{target}/*&output=json",
+        f"https://columbus.elmasy.com/api/lookup/{target}",
+        f"https://riddler.io/search/export/domain/{target}"
     ]
-    all_found = set()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures = [executor.submit(fetch_data, url, domain) for url in sources]
-        for future in concurrent.futures.as_completed(futures):
-            all_found.update(future.result())
-    return sorted(list(set([s.lower() for s in all_found if domain in s])))
+
+    all_data = set()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
+        futures = [executor.submit(fetch_logic, url, target) for url in sources]
+        for f in concurrent.futures.as_completed(futures):
+            all_data.update(f.result())
+
+    return sorted(list(set([s.lower() for s in all_data if target in s])))
+
+def show_help():
+    print(get_banner())
+    print(f"""
+{B}USAGE:{W}
+  as-recon -d <domain>          {G}# Run standard scan{W}
+  as-recon -d <domain> -o <file> {G}# Save results to file{W}
+
+{B}OPTIONS:{W}
+  -d, --domain    Target domain (e.g., google.com)
+  -o, --output    Save results to a specific file
+  -h, --help      Show this advanced help menu
+    """)
 
 def main():
-    print(BANNER)
     args = sys.argv
-    if "-d" not in args:
-        print(f"{R}Usage: as-recon -d target.com [-o output.txt]{W}")
-        sys.exit(1)
+    if "-h" in args or "--help" in args or len(args) < 3:
+        show_help()
+        sys.exit()
 
+    print(get_banner())
     target = args[args.index("-d") + 1]
     output_file = args[args.index("-o") + 1] if "-o" in args else None
     
-    start_time = time.time()
-    results = run_recon(target)
+    start = time.time()
+    results = run_ultimate_recon(target)
     
     if results:
-        print(f"\n{G}[+] Found {len(results)} Subdomains:{W}\n")
-        for sub in results:
-            print(f" {C}»{W} {sub}")
+        for r in results: print(f" {G}»{W} {r}")
+        print(f"\n{Y}┌────────────────────────────────────────┐")
+        print(f"  {B}TOTAL UNIQUE RESULTS : {G}{len(results)}{W}")
+        print(f"  {B}TIME ELAPSED         : {C}{round(time.time()-start, 2)}s{W}")
+        print(f"{Y}└────────────────────────────────────────┘{W}")
         
         if output_file:
-            with open(output_file, "w") as f:
-                f.write("\n".join(results))
-            print(f"\n{Y}[📂] Results saved to: {W}{output_file}")
-        
-        print(f"\n{G}[✓] Scan Complete in {round(time.time()-start_time, 2)}s{W}")
+            with open(output_file, "w") as f: f.write("\n".join(results))
+            print(f"{M}[!] Data secured in: {W}{output_file}")
     else:
-        print(f"\n{R}[!] No results found.{W}")
+        print(f"{R}[!] No data found. Target might be firewalled.{W}")
 
 if __name__ == "__main__":
     main()
