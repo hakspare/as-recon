@@ -46,7 +46,7 @@ cd as-recon
 # Grant execution permission and run the setup
 chmod +x setup.sh
 
-sudo ./setup.shhere
+sudo ./setup.sh
 
 2. For Android (Termux)
 ​Ensure you have Termux installed from F-Droid, then run:
