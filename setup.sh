@@ -33,7 +33,7 @@ def logo():
 # Function to check HTTP Status
 def check_status(url):
     try:
-        # 5 second timeout helps to keep it fast
+        # Status checking logic with timeout
         response = requests.get(url, timeout=5, allow_redirects=True)
         status = response.status_code
         
@@ -47,7 +47,6 @@ def check_status(url):
         print(f"{D}[{color}{status}{D}]{RESET} {url}")
         return f"[{status}] {url}"
     except:
-        # If site is down or timeout
         return None
 
 def run_recon():
@@ -71,7 +70,7 @@ def run_recon():
         print(f"{D}--------------------------------------------------------{RESET}")
 
     try:
-        # Running subfinder and gau in background
+        # Using subfinder and gau binaries from your new setup.sh
         cmd = f"subfinder -d {args.domain} -silent && gau --subs {args.domain}"
         process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         
@@ -87,7 +86,7 @@ def run_recon():
             print(f"{B}[INFO]{RESET} Checking Status Codes... (Please wait)")
             print(f"{D}--------------------------------------------------------{RESET}")
 
-        # Multi-threading Engine
+        # Multi-threading Engine for speed
         results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
             future_to_url = {executor.submit(check_status, url): url for url in unique_urls}
@@ -96,7 +95,7 @@ def run_recon():
                 if res:
                     results.append(res)
 
-        # Saving Output
+        # Output Management
         if args.output:
             with open(args.output, "w") as f:
                 for line in results:
