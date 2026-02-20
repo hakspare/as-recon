@@ -26,7 +26,6 @@ def check_live_pro(subdomain, wildcard_ip, target):
         server = r.headers.get('Server', 'Hidden')[:15]
         color = G if sc == 200 else Y if sc in [403, 401] else R
         
-        # রিটার্ন ডেটা (টার্মিনাল ডিসপ্লে এবং ফাইল সেভ এর জন্য)
         display = f" {C}»{W} {subdomain.ljust(35)} {B}{color}[{sc}]{W} {C}({server}){W} {Y}[{current_ip}]{W}"
         return (display, subdomain)
     except: return None
@@ -85,11 +84,10 @@ def main():
             print(f" {C}»{W} {s}")
             valid_subs.append(s)
 
-    # ফাইল সেভ লজিক
     if args.output and valid_subs:
         with open(args.output, "w") as f:
             f.write("\n".join(valid_subs))
-        print(f"\n{G}[!] Mission Accomplished! Results saved in: {B}{args.output}{W}")
+        print(f"\n{G}[!] Results saved in: {B}{args.output}{W}")
 
 if __name__ == "__main__":
     main()
