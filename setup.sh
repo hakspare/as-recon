@@ -1,59 +1,111 @@
-#!/bin/bash
+#!/usr/bin/env python3
+import argparse
+import subprocess
+import os
+import sys
+import concurrent.futures
+import requests
 
-echo -e "\e[1;32m[+] AS-RECON Extreme Fast Setup (Speed Optimized)\e[0m"
+# Professional Color Codes
+R = '\033[1;31m' # Red
+G = '\033[1;32m' # Green
+Y = '\033[1;33m' # Yellow
+B = '\033[1;34m' # Blue
+C = '\033[1;36m' # Cyan
+W = '\033[1;37m' # White
+D = '\033[1;30m' # Dark Gray
+RESET = '\033[0m'
 
-if [ -d "/data/data/com.termux/files/usr/bin" ]; then
-    BIN_DIR="$PREFIX/bin"
-    OS="android"
-    ARCH="arm64"
-    SUDO=""
-else
-    BIN_DIR="/usr/bin"
-    OS="linux"
-    ARCH="amd64"
-    SUDO="sudo"
-fi
+def logo():
+    print(f"""
+{C}    ___   _____        ____  __________  ______  _   __
+{C}   /   | / ___/       / __ \/ ____/ __ \/ ____/ / | / /
+{C}  / /| | \__ \______ / /_/ / __/ / / / / /   /  |/ / 
+{C} / ___ |___/ /_____// _, _/ /___/ /_/ / /___/ /|  /  
+{C}/_/  |_/____/      /_/ |_/_____/\____/\____/_/ |_/   
+{D}                                             v4.0-Pro
+{D}--------------------------------------------------------
+{W}   Author  : {G}@hakspare (Ajijul Shohan)
+{W}   Feature : {G}Multi-threaded Status Checker
+{D}--------------------------------------------------------{RESET}
+    """)
 
-echo -e "\e[1;34m[*] Checking dependencies...\e[0m"
-if [ "$OS" = "android" ]; then
-    pkg install curl unzip tar -y
-else
-    $SUDO apt update && $SUDO apt install curl unzip tar -y
-fi
+# Function to check HTTP Status
+def check_status(url):
+    try:
+        # 5 second timeout helps to keep it fast
+        response = requests.get(url, timeout=5, allow_redirects=True)
+        status = response.status_code
+        
+        if status == 200:
+            color = G
+        elif status >= 400:
+            color = R
+        else:
+            color = Y
+            
+        print(f"{D}[{color}{status}{D}]{RESET} {url}")
+        return f"[{status}] {url}"
+    except:
+        # If site is down or timeout
+        return None
 
-install_binary() {
-    local name=$1
-    local url=$2
-    echo -e "\e[1;34m[*] Installing $name...\e[0m"
+def run_recon():
+    parser = argparse.ArgumentParser(description="AS-RECON Pro - High Speed Recon Tool")
+    parser.add_argument("-d", "--domain", help="Target domain", required=True)
+    parser.add_argument("-o", "--output", help="Save results to file")
+    parser.add_argument("-t", "--threads", help="Number of threads (Default 10)", type=int, default=10)
+    parser.add_argument("-s", "--silent", help="Show only URLs", action="store_true")
+
+    if len(sys.argv) == 1:
+        logo()
+        parser.print_help()
+        sys.exit(1)
+
+    args = parser.parse_args()
     
-    if [[ "$url" == *.zip ]]; then
-        curl -sL "$url" -o "${name}.zip"
-        unzip -oq "${name}.zip"
-        rm "${name}.zip"
-    else
-        curl -sL "$url" -o "${name}.tar.gz"
-        tar -xzf "${name}.tar.gz"
-        rm "${name}.tar.gz"
-    fi
+    if not args.silent:
+        logo()
+        print(f"{B}[INFO]{RESET} Fetching URLs for: {G}{args.domain}{RESET}")
+        print(f"{B}[INFO]{RESET} Threads: {Y}{args.threads}{RESET}")
+        print(f"{D}--------------------------------------------------------{RESET}")
 
-    find . -maxdepth 1 -type f -name "$name*" -not -name "*.md" -exec $SUDO mv {} $BIN_DIR/$name \;
-    $SUDO chmod +x $BIN_DIR/$name
-    echo -e "\e[1;32m[✓] $name ready!\e[0m"
-}
+    try:
+        # Running subfinder and gau in background
+        cmd = f"subfinder -d {args.domain} -silent && gau --subs {args.domain}"
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        
+        raw_urls = []
+        for line in process.stdout:
+            if line.strip():
+                raw_urls.append(line.strip())
+        
+        unique_urls = list(set(raw_urls))
+        
+        if not args.silent:
+            print(f"{B}[INFO]{RESET} Total URLs found: {Y}{len(unique_urls)}{RESET}")
+            print(f"{B}[INFO]{RESET} Checking Status Codes... (Please wait)")
+            print(f"{D}--------------------------------------------------------{RESET}")
 
-echo -e "\e[1;33m[!] Instant Installation starting (Parallel Mode)...\e[0m"
+        # Multi-threading Engine
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
+            future_to_url = {executor.submit(check_status, url): url for url in unique_urls}
+            for future in concurrent.futures.as_completed(future_to_url):
+                res = future.result()
+                if res:
+                    results.append(res)
 
-install_binary "subfinder" "https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/subfinder_2.6.6_${OS}_${ARCH}.zip" &
-install_binary "httpx" "https://github.com/projectdiscovery/httpx/releases/download/v1.6.0/httpx_1.6.0_${OS}_${ARCH}.zip" &
-install_binary "gau" "https://github.com/lc/gau/releases/download/v2.2.3/gau_2.2.3_${OS}_${ARCH}.tar.gz" &
-install_binary "katana" "https://github.com/projectdiscovery/katana/releases/download/v1.1.0/katana_1.1.0_${OS}_${ARCH}.zip" &
+        # Saving Output
+        if args.output:
+            with open(args.output, "w") as f:
+                for line in results:
+                    f.write(line + "\n")
+            print(f"\n{G}[SUCCESS]{RESET} Results saved in: {C}{args.output}{RESET}")
 
-wait
+    except KeyboardInterrupt:
+        print(f"\n{R}[!] Stopped by user.{RESET}")
+        sys.exit()
 
-if [ -f "as-recon.py" ]; then
-    $SUDO cp as-recon.py $BIN_DIR/as-recon
-    $SUDO chmod +x $BIN_DIR/as-recon
-fi
-
-echo -e "\e[1;32m\n[★] Success! AS-RECON is now installed and faster than light.\e[0m"
-echo -e "\e[1;33m[Usage] as-recon -d example.com\e[0m"
+if __name__ == "__main__":
+    run_recon()
