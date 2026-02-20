@@ -1,56 +1,87 @@
-#!/usr/bin/env python3
-import os
-import sys
 import argparse
 import subprocess
+import os
+import sys
 
-G, R, C, Y, W = '\033[1;32m', '\033[1;31m', '\033[1;36m', '\033[1;33m', '\033[0m'
+# Color codes for professional output
+R = '\033[1;31m' # Red
+G = '\033[1;32m' # Green
+Y = '\033[1;33m' # Yellow
+B = '\033[1;34m' # Blue
+C = '\033[1;36m' # Cyan
+W = '\033[1;37m' # White
+D = '\033[1;30m' # Dark Gray
+RESET = '\033[0m'
 
 def logo():
-    print(f"""{C}
- █████╗ ███████╗    ██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
-██╔══██╗██╔════╝    ██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║
-███████║███████╗    ██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║
-██╔══██║╚════██║    ██╔══██╗██╔════╝██║     ██║   ██║██║╚██╗██║
-██║  ██║███████║    ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
-╚═╝  ╚═╝╚══════╝    ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
- {G}[+] Dynamic Command Mode {Y}v4.0 (pro){W}
+    # Minimalist & Professional ASCII Art (Wont break on mobile)
+    print(f"""
+{C}    ___   _____        ____  __________  ______  _   __
+{C}   /   | / ___/       / __ \/ ____/ __ \/ ____/ / | / /
+{C}  / /| | \__ \______ / /_/ / __/ / / / / /   /  |/ / 
+{C} / ___ |___/ /_____// _, _/ /___/ /_/ / /___/ /|  /  
+{C}/_/  |_/____/      /_/ |_/_____/\____/\____/_/ |_/   
+{D}                                             v4.0-Pro
+{D}--------------------------------------------------------
+{W}   Author  : {G}@hakspare (Ajijul Shohan)
+{W}   Purpose : {G}Fast URL & Subdomain Reconnaissance
+{D}--------------------------------------------------------{RESET}
     """)
 
 def run_recon():
-    parser = argparse.ArgumentParser(description="AS-RECON by AJIJUL")
-    parser.add_argument("domain", help="Target domain (e.g. canva.com)")
-    parser.add_argument("-o", "--output", help="Save output to a file (e.g. -o sub.txt)")
-    
+    parser = argparse.ArgumentParser(description="AS-RECON by AJIJUL SHOHAN")
+    parser.add_argument("-d", "--domain", help="Target domain (e.g. example.com)", required=True)
+    parser.add_argument("-o", "--output", help="Save output to a file")
+
     args = parser.parse_args()
     domain = args.domain
     output_file = args.output
 
     logo()
-    print(f"{G}[*] Fetching URLs for: {domain}{W}")
-    print(f"{Y}" + "-"*40 + f"{W}")
+
+    print(f"{B}[INFO]{RESET} Starting reconnaissance for: {G}{domain}{RESET}")
+    print(f"{D}--------------------------------------------------------{RESET}")
 
     try:
+        # Combining powerful recon tools
+        # Make sure waybackurls, gau, and katana are installed via setup.sh
         cmd = f"waybackurls {domain} && gau --subs {domain}"
-        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
         urls = []
+        
+        # Live output display
         for line in process.stdout:
             url = line.strip()
             if url:
                 urls.append(url)
                 if not output_file:
-                    print(url)
-        
+                    print(f"{G}➔{RESET} {url}")
+
+        # Handling errors
+        _, stderr = process.communicate()
+        if process.returncode != 0 and not urls:
+            print(f"{R}[ERROR]{RESET} Something went wrong or no URLs found.")
+            print(f"{D}[DEBUG] {stderr}{RESET}")
+            return
+
+        # Unique URL processing
+        unique_urls = sorted(list(set(urls)))
+
         if output_file:
-            unique_urls = sorted(list(set(urls)))
             with open(output_file, "w") as f:
                 for u in unique_urls:
                     f.write(u + "\n")
-            print(f"\n{G}[✓] Total {len(unique_urls)} unique URLs saved to: {output_file}{W}")
-            
+            print(f"\n{G}[SUCCESS]{RESET} Total {Y}{len(unique_urls)}{RESET} unique URLs saved to: {C}{output_file}{RESET}")
+        else:
+            print(f"\n{G}[SUCCESS]{RESET} Found {Y}{len(unique_urls)}{RESET} unique URLs.")
+
+    except KeyboardInterrupt:
+        print(f"\n{R}[!] Stopped by user.{RESET}")
+        sys.exit()
     except Exception as e:
-        print(f"{R}[!] Error: {e}{W}")
+        print(f"\n{R}[!] Unexpected Error: {e}{RESET}")
 
 if __name__ == "__main__":
     run_recon()
