@@ -10,12 +10,7 @@ B='\033[1m'
 
 clear
 
-echo -e "${C}${B}   ▄▄▄· .▄▄ ·      ▄▄▄▄▄▄▄▄ . ▄▄·       ▐ ▄ "
-echo -e "  ▐█ ▀█ ▐█ ▀. ▪     •██  ▀▄.▀·▐█ ▄·▪     •█▌▐█"
-echo -e "  ▄█▀▀█ ▄▀▀▀█▄ ▄█▀▄  ▐█.▪▐▀▀▪▄██▀▀█▄█▀▄ ▐█▐▐▌"
-echo -e "  ▐█ ▪▐▌▐█▄▪▐█▐█▌.▐▌ ▐█▌·▐█▄▄▌▐█ ▪▐█▐█▌.▐▌██▐█▌"
-echo -e "   ▀  ▀  ▀▀▀▀  ▀█▄▀▪ ▀▀▀  ▀▀▀  ▀  ▀ ▀█▄▀▪▀▀ █▪${W}"
-echo -e "${Y}      >> v10.2 Final Fix: Global Deployment <<${W}"
+echo -e "${C}${B}>> AS-RECON v10.2.1: Critical Syntax Fix <<${W}"
 echo -e "${G}--------------------------------------------------------${W}"
 
 # 1. Detect Path
@@ -29,12 +24,12 @@ fi
 
 echo -e "${C}[*] System detected: ${Y}$OS${W}"
 
-# 2. Cleanup old versions
+# 2. Cleanup
 echo -e "${C}[*] Removing legacy binaries...${W}"
 rm -f "$BIN_PATH/as-recon"
 
 # 3. Dependency Check
-echo -e "${C}[*] Ensuring Python modules are up-to-date...${W}"
+echo -e "${C}[*] Ensuring Python modules...${W}"
 pip install requests urllib3 argparse --no-cache-dir &>/dev/null
 
 # 4. Install new version
@@ -46,11 +41,17 @@ if [ -f "$PY_FILE" ]; then
     
     if [ "$OS" == "Termux" ]; then
         cp "$PY_FILE" "$BIN_PATH/as-recon"
+        chmod +x "$BIN_PATH/as-recon"
     else
         sudo cp "$PY_FILE" "$BIN_PATH/as-recon"
         sudo chmod +x "$BIN_PATH/as-recon"
     fi
     echo -e "${G}[✓] Binary linked successfully!${W}"
 else
-    echo -e "${R}[!] Error: $PY_FILE not found in this folder!${W}"
-    exit
+    echo -e "${R}[!] Error: $PY_FILE not found!${W}"
+    exit 1
+fi
+
+echo -e "${G}--------------------------------------------------------${W}"
+echo -e "${G}${B}[✓] v10.2.1 DEPLOYED!${W}"
+echo -e "Run: ${C}as-recon -d renesabazar.com --live -o ll.txt${W}"
