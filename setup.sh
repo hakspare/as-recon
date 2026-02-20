@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# --- Colors for Professional UI ---
+# --- কালার এবং স্টাইল ---
 G='\033[92m'
 C='\033[96m'
 Y='\033[93m'
@@ -18,31 +18,42 @@ echo -e "   ▀  ▀  ▀▀▀▀  ▀█▄▀▪ ▀▀▀  ▀▀▀  ▀  �
 echo -e "${Y}      >> The Hunter Edition v7.0 Installer <<${W}"
 echo -e "${G}--------------------------------------------------------${W}"
 
-# ১. সিস্টেম ডিটেকশন ও আপডেট
-echo -e "${C}[*] Identifying environment & updating packages...${W}"
+# ১. এনভায়রনমেন্ট ডিটেকশন
+echo -e "${C}[*] Identifying environment...${W}"
 if [ -d "$PREFIX/bin" ]; then
     OS="termux"
-    pkg update -y && pkg upgrade -y &>/dev/null
+    echo -e "${G}[✓] Termux detected.${W}"
 else
     OS="linux"
-    sudo apt update -y &>/dev/null
+    echo -e "${G}[✓] Linux detected.${W}"
 fi
 
-# ২. পাইথন ও ডিপেন্ডেন্সি চেক
-echo -e "${C}[*] Checking for Python3 and required modules...${W}"
-if ! command -v python3 &>/dev/null; then
-    echo -e "${Y}[!] Python3 not found. Installing...${W}"
-    [ "$OS" == "termux" ] && pkg install python -y || sudo apt install python3 -y
-fi
-
-# ৩. লাইব্রেরি ইনস্টলেশন
-echo -e "${C}[*] Installing power-libraries (requests, argparse)...${W}"
+# ২. পাইথন লাইব্রেরি ইনস্টল
+echo -e "${C}[*] Installing dependencies...${W}"
 pip install requests urllib3 argparse --no-cache-dir &>/dev/null
 
-# ৪. গ্লোবাল কমান্ড সেটআপ (The Magic Part)
-echo -e "${C}[*] Integrating 'as-recon' into global path...${W}"
+# ৩. গ্লোবাল কমান্ড সেটআপ
+echo -e "${C}[*] Integrating 'as-recon' into system path...${W}"
 
-# পাইথন ফাইলের নাম যদি as-recon.py হয়, তবে সেটা চেক করা
+# ফাইলের নাম ঠিক করা (v7.0 কোডটি যে ফাইলে আছে)
 SCRIPT_NAME="as-recon.py"
-if [ ! -f "$SCRIPT_NAME" ]; then
-    # যদি ফাই
+
+if [ -f "$SCRIPT_NAME" ]; then
+    chmod +x "$SCRIPT_NAME"
+    if [ "$OS" == "termux" ]; then
+        cp "$SCRIPT_NAME" "$PREFIX/bin/as-recon"
+        chmod +x "$PREFIX/bin/as-recon"
+    else
+        sudo cp "$SCRIPT_NAME" "/usr/local/bin/as-recon"
+        sudo chmod +x "/usr/local/bin/as-recon"
+    fi
+    echo -e "${G}[✓] Global command 'as-recon' is ready!${W}"
+else
+    echo -e "${R}[!] Error: $SCRIPT_NAME not found in this folder!${W}"
+    exit 1
+fi
+
+echo -e "${G}--------------------------------------------------------${W}"
+echo -e "${G}${B}[✓] INSTALLATION SUCCESSFUL!${W}"
+echo -e "${Y}Now you can run the tool by just typing: ${C}as-recon${W}"
+echo -e "${G}--------------------------------------------------------${W}"
