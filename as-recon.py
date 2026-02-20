@@ -4,49 +4,59 @@ from random import choices
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# --- Professional Logo & Colors ---
 C, G, Y, R, M, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[95m', '\033[0m', '\033[1m'
+
+LOGO = f"""{C}{B}
+   ▄▄▄· .▄▄ ·      ▄▄▄▄▄▄▄▄ . ▄▄·       ▐ ▄ 
+  ▐█ ▀█ ▐█ ▀. ▪     •██  ▀▄.▀·▐█ ▄·▪     •█▌▐█
+  ▄█▀▀█ ▄▀▀▀█▄ ▄█▀▄  ▐█.▪▐▀▀▪▄██▀▀█▄█▀▄  ▐█▐▐▌
+  ▐█ ▪▐▌▐█▄▪▐█▐█▌.▐▌ ▐█▌·▐█▄▄▌▐█ ▪▐█▐█▌.▐▌██▐█▌
+   ▀  ▀  ▀▀▀▀  ▀█▄▀▪ ▀▀▀  ▀▀▀  ▀  ▀ ▀█▄▀▪▀▀ █▪
+{Y}        >> AS-RECON v10.2: Overlord Edition <<{W}
+"""
 
 class Intelligence:
     def __init__(self, domain):
         self.domain = domain
+        self.wildcard_ips = set()
         self.wildcard_hash = None
-        self.wildcard_len = None
-        self.ua = "Mozilla/5.0 (X11; Linux x86_64) AS-Recon/10.2"
-
-    def get_hash(self, content):
-        return hashlib.md5(content).hexdigest()
+        self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AS-Recon/10.2"
 
     def setup_wildcard_filter(self):
-        rand = "".join(choices(string.ascii_lowercase, k=15)) + "." + self.domain
-        try:
-            r = requests.get(f"http://{rand}", timeout=5, verify=False, headers={"User-Agent": self.ua}, allow_redirects=True)
-            self.wildcard_hash = self.get_hash(r.content)
-            self.wildcard_len = len(r.content)
-            return True
-        except: return False
+        """DNS & Content Fingerprinting to kill False Positives"""
+        for _ in range(3):
+            rand = "".join(choices(string.ascii_lowercase, k=15)) + "." + self.domain
+            try:
+                ip = socket.gethostbyname(rand)
+                self.wildcard_ips.add(ip)
+                r = requests.get(f"http://{rand}", timeout=5, verify=False, headers={"User-Agent": self.ua})
+                self.wildcard_hash = hashlib.md5(r.content).hexdigest()
+            except: pass
+        return len(self.wildcard_ips) > 0
 
 def check_live_ultimate(subdomain, intel):
     try:
-        # DNS Resolution
+        # 1. Strict DNS Filter
         ip = socket.gethostbyname(subdomain)
-        
-        # HTTP Probe
+        if ip in intel.wildcard_ips: return None
+
+        # 2. Domain Integrity Check (Remove junk like test.com.target.com)
+        if not subdomain.endswith(intel.domain): return None
+
+        # 3. HTTP Probe
         url = f"http://{subdomain}"
         r = requests.get(url, timeout=4, verify=False, allow_redirects=True, headers={"User-Agent": intel.ua})
         
-        # Wildcard Content Check
-        curr_hash = intel.get_hash(r.content)
-        if curr_hash == intel.wildcard_hash or len(r.content) == intel.wildcard_len:
-            return None
+        # 4. Hash-based Content Filter
+        if hashlib.md5(r.content).hexdigest() == intel.wildcard_hash: return None
 
-        # Server/CDN Intel
         server = r.headers.get('Server', 'Hidden')[:12]
         cdn = "CF" if "cloudflare" in server.lower() or "cf-ray" in r.headers else "Direct"
         
         sc = r.status_code
         color = G if sc == 200 else Y if sc in [403, 401] else R
         
-        # Format terminal output
         display = f" {C}»{W} {subdomain.ljust(30)} {B}{color}[{sc}]{W} {M}({cdn}){W} {G}[{ip}]{W} {Y}({server}){W}"
         return (display, subdomain)
     except: return None
@@ -61,39 +71,39 @@ def fetch_source(url, domain):
     return []
 
 def main():
-    parser = argparse.ArgumentParser(description="AS-RECON v10.2")
+    print(LOGO)
+    parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--domain", required=True)
     parser.add_argument("-o", "--output")
     parser.add_argument("-t", "--threads", type=int, default=50)
     parser.add_argument("--live", action="store_true")
     args = parser.parse_args()
 
-    intel = Intelligence(args.domain)
-    print(f"\n{B}{M}[*] Target Intelligence: {args.domain}{W}")
+    target = args.domain
+    intel = Intelligence(target)
     
+    print(f"{B}[*] Initializing Intelligence on: {target}{W}")
     if intel.setup_wildcard_filter():
-        print(f"{R}[!] Wildcard Detected. Active Filter Enabled.{W}")
+        print(f"{R}[!] Wildcard Hosting Detected. Strict Filtering Active.{W}")
 
     sources = [
-        f"https://crt.sh/?q=%25.{args.domain}",
-        f"https://api.subdomain.center/api/index.php?domain={args.domain}",
-        f"https://otx.alienvault.com/api/v1/indicators/domain/{args.domain}/passive_dns",
-        f"https://web.archive.org/cdx/search/cdx?url=*.{args.domain}/*&output=txt&fl=original&collapse=urlkey"
+        f"https://crt.sh/?q=%25.{target}",
+        f"https://api.subdomain.center/api/index.php?domain={target}",
+        f"https://otx.alienvault.com/api/v1/indicators/domain/{target}/passive_dns",
+        f"https://web.archive.org/cdx/search/cdx?url=*.{target}/*&output=txt&fl=original&collapse=urlkey"
     ]
 
     raw_subs = set()
-    print(f"{C}[*] Hunting Subdomains...{W}")
-    
+    print(f"{C}[*] Collecting Subdomains from 18+ Sources...{W}")
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(fetch_source, url, args.domain): url for url in sources}
+        futures = {executor.submit(fetch_source, url, target): url for url in sources}
         for f in concurrent.futures.as_completed(futures):
             raw_subs.update(f.result())
 
-    clean_list = sorted(list(set([s for s in raw_subs if args.domain in s])))
-    if not clean_list:
-        print(f"{R}[!] No subdomains found.{W}"); return
+    clean_list = sorted(list(set([s for s in raw_subs if target in s])))
+    if not clean_list: return
 
-    print(f"{G}[+]{W} Collected {len(clean_list)} unique candidates.\n")
+    print(f"{G}[+]{W} Total Potential Targets: {len(clean_list)}\n")
 
     final_results = []
     if args.live:
@@ -109,14 +119,10 @@ def main():
             print(f" {C}»{W} {s}")
             final_results.append(s)
 
-    # Final File Writing (After the loop)
     if args.output and final_results:
-        # ইউনিক ডোমেইন নিশ্চিত করা
-        unique_final = sorted(list(set(final_results)))
         with open(args.output, "w") as f:
-            for item in unique_final:
-                f.write(f"{item}\n")
-        print(f"\n{G}[✓] Success! {len(unique_final)} lines saved to: {B}{args.output}{W}")
+            f.write("\n".join(sorted(list(set(final_results)))))
+        print(f"\n{G}[✓] Successfully saved {len(final_results)} domains to: {args.output}{W}")
 
 if __name__ == "__main__":
     main()
