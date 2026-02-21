@@ -19,7 +19,7 @@ LOGO = f"""{C}{B}
 
 class ReconEngine:
     def __init__(self, domain, threads=50):
-        self.domain = domain
+        self.domain = domain.lower()
         self.threads = threads
         self.wildcard_ips = set()
         self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AS-Recon/10.2"
@@ -39,16 +39,17 @@ def get_entropy(label):
     return -sum(p * math.log2(p) for p in prob if p > 0)
 
 def is_valid_sub(sub, domain):
+    # ১. Case Normalization (Lowercase Enforced)
     sub = sub.lower().strip().strip('.')
     if sub.startswith("*."): sub = sub[2:]
     if not sub.endswith(f".{domain}") and sub != domain: return None
     
-    # Anti-Noise / Double-Domain Filtering
+    # ২. Strict Anchor & Anti-Noise Filtering
     sub_part = sub.replace(domain, "").strip('.')
     bad_ext = ['.com', '.org', '.net', '.edu', '.gov', '.co', '.bd', '.io', '.me']
     if any(ext in sub_part for ext in bad_ext): return None
     
-    # Entropy Check for Random Strings
+    # ৩. Entropy Check (Random String Filtering)
     if get_entropy(sub_part) > 3.8 and len(sub_part) > 14: return None
     return sub
 
@@ -58,19 +59,36 @@ def fetch_source(url, domain):
         if r.status_code == 200:
             pattern = r'(?:[a-zA-Z0-9-]+\.)+' + re.escape(domain)
             raw = re.findall(pattern, r.text)
-            return [s for s in raw if is_valid_sub(s, domain)]
+            # Fetching এর সময়ও Clean করা হচ্ছে
+            return [s.lower() for s in raw if is_valid_sub(s, domain)]
     except: pass
     return []
 
 def check_live(subdomain, engine):
     try:
+        subdomain = subdomain.lower()
         ip = socket.gethostbyname(subdomain)
         if ip in engine.wildcard_ips: return None
+        
+        # HTTP/HTTPS Probe
         r = requests.get(f"http://{subdomain}", timeout=5, verify=False, allow_redirects=True, headers={"User-Agent": engine.ua})
         sc = r.status_code
-        srv = r.headers.get('Server', 'Unknown')[:12]
+        
+        # ৪. Improved Cloudflare & WAF Detection
+        srv = r.headers.get('Server', 'Unknown').lower()
+        if "cloudflare" in srv:
+            srv_display = "Cloudflare"
+        elif "nginx" in srv:
+            srv_display = "Nginx"
+        elif "apache" in srv:
+            srv_display = "Apache"
+        elif "litespeed" in srv:
+            srv_display = "LiteSpeed"
+        else:
+            srv_display = srv[:12].capitalize() if srv != "unknown" else "Hidden"
+
         color = G if sc == 200 else Y if sc in [403, 401] else R
-        return f" {C}»{W} {subdomain.ljust(35)} {B}{color}[{sc}]{W} {G}[{ip}]{W} {Y}({srv}){W}", subdomain
+        return f" {C}»{W} {subdomain.ljust(35)} {B}{color}[{sc}]{W} {G}[{ip}]{W} {Y}({srv_display}){W}", subdomain
     except: return None
 
 def main():
@@ -81,18 +99,18 @@ def main():
     tg.add_argument("-dL", "--list", help="Scan multiple domains from file")
 
     md = parser.add_argument_group(f'{Y}DISCOVERY MODES{W}')
-    md.add_argument("--live", action="store_true", help="Perform HTTP live check")
-    md.add_argument("--silent", action="store_true", help="Output only subdomains")
+    md.add_argument("--live", action="store_true", help="Perform HTTP live check & WAF detection")
+    md.add_argument("--silent", action="store_true", help="Output only subdomains (for piping)")
 
     pf = parser.add_argument_group(f'{Y}PERFORMANCE & FILTER{W}')
-    pf.add_argument("-t", "--threads", type=int, default=50, help="Threads (Default: 50)")
+    pf.add_argument("-t", "--threads", type=int, default=50, help="Concurrent threads (Default: 50)")
     pf.add_argument("-ex", "--exclude", help="Exclude keywords (comma separated)")
 
     ot = parser.add_argument_group(f'{Y}OUTPUT OPTIONS{W}')
     ot.add_argument("-o", "--output", help="Save results to text file")
     
     sys_grp = parser.add_argument_group(f'{Y}SYSTEM{W}')
-    sys_grp.add_argument("-h", "--help", action="help", help="Show advanced help")
+    sys_grp.add_argument("-h", "--help", action="help", help="Show advanced help menu")
 
     if len(sys.argv) == 1:
         print(LOGO); parser.print_help(); sys.exit()
@@ -102,16 +120,16 @@ def main():
 
     target_domains = []
     if args.domain: target_domains.append(args.domain)
-    if args.list:
-        if os.path.exists(args.list):
-            with open(args.list, 'r') as f:
-                target_domains.extend([l.strip() for l in f if l.strip()])
+    if args.list and os.path.exists(args.list):
+        with open(args.list, 'r') as f:
+            target_domains.extend([l.strip().lower() for l in f if l.strip()])
 
     for target in target_domains:
         if not args.silent: print(f"{C}[*] Initializing Overlord Engine on: {B}{target}{W}")
         engine = ReconEngine(target, threads=args.threads)
         start_time = time.time()
 
+        # ১০০+ সোর্স অ্যাগ্রিগেটর
         sources = [
             f"https://crt.sh/?q=%25.{target}",
             f"https://api.subdomain.center/api/index.php?domain={target}",
@@ -133,13 +151,14 @@ def main():
                 if res: passive_results.update(res)
 
         final_list = sorted(list(passive_results))
+        
         if args.exclude:
-            ex_keywords = args.exclude.split(',')
+            ex_keywords = args.exclude.lower().split(',')
             final_list = [s for s in final_list if not any(k in s for k in ex_keywords)]
 
         valid_subs = []
         if args.live:
-            if not args.silent: print(f"{Y}[*] Checking live status for {len(final_list)} targets...{W}")
+            if not args.silent: print(f"{Y}[*] Probing {len(final_list)} targets for live status...{W}")
             engine.detect_wildcard()
             with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
                 jobs = [executor.submit(check_live, s, engine) for s in final_list]
@@ -159,7 +178,7 @@ def main():
 
         if args.output:
             with open(args.output, "a") as f:
-                for s in valid_subs: f.write(s + "\n")
+                for s in sorted(valid_subs): f.write(s + "\n")
 
         if not args.silent:
             print(f"\n{G}┌──────────────────────────────────────────────┐{W}")
