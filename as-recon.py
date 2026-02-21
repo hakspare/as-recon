@@ -61,37 +61,38 @@ def check_live_ultimate(subdomain, intel):
     except: return None
 
 def main():
-    # --- অ্যাডভান্সড হেল্প মেনু লজিক ---
+    # --- প্রফেশনাল হেল্প মেনু সেটআপ ---
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=LOGO,
-        add_help=False # ডিফল্ট হেল্প বন্ধ করে কাস্টম গ্রুপ করা হয়েছে
+        add_help=False
     )
     
-    # হেল্প মেনু গ্রুপিং
+    # গ্রুপ ভিত্তিক কমান্ড সাজানো
     target = parser.add_argument_group(f'{Y}TARGET OPTIONS{W}')
-    target.add_argument("-d", "--domain", help="Target domain to scan (e.g. google.com)")
+    target.add_argument("-d", "--domain", metavar="DOMAIN", required=True, help="Target domain to scan (e.g. google.com)")
     
     mode = parser.add_argument_group(f'{Y}SCAN MODES{W}')
-    mode.add_argument("--live", action="store_true", help="Check if subdomains are alive (Status, CDN, IP)")
+    mode.add_argument("--live", action="store_true", help="Check for live hosts (Status, CDN, IP, Server)")
     
     perf = parser.add_argument_group(f'{Y}PERFORMANCE{W}')
-    perf.add_argument("-t", "--threads", type=int, default=60, help="Number of concurrent threads (Default: 60)")
+    perf.add_argument("-t", "--threads", type=int, default=60, metavar="NUM", help="Threads for live check (Default: 60)")
     
     out = parser.add_argument_group(f'{Y}OUTPUT OPTIONS{W}')
-    out.add_argument("-o", "--output", help="Save the results to a text file")
+    out.add_argument("-o", "--output", metavar="FILE", help="Save the clean list of subdomains to a file")
     
     sys_opt = parser.add_argument_group(f'{Y}SYSTEM{W}')
-    sys_opt.add_argument("-h", "--help", action="help", help="Show this advanced help menu and exit")
+    sys_opt.add_argument("-h", "--help", action="help", help="Show this professional help menu and exit")
 
-    args = parser.parse_args()
-
-    # ডোমেইন না দিলে হেল্প মেনু দেখাবে
-    if not args.domain:
+    # যদি ডোমেইন না দেওয়া হয় তবে লোগোসহ হেল্প দেখাবে
+    if len(sys.argv) == 1:
         print(LOGO)
         parser.print_help()
         sys.exit()
 
+    args = parser.parse_args()
+
+    # --- অরিজিনাল ফাস্ট ইঞ্জিন শুরু ---
     start_time = time.time()
     target_domain = args.domain
     intel = Intelligence(target_domain)
@@ -109,7 +110,7 @@ def main():
     print(f"{B}{C}[*] Initializing Intelligence on: {target_domain}{W}")
     intel.setup_wildcard_filter()
     
-    print(f"{Y}[*] Hunting Subdomains from 50+ Sources (Passive-Engine)...{W}")
+    print(f"{Y}[*] Hunting Subdomains (Gau/Amass Passive Engine)...{W}")
     raw_subs = set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
         futures = {executor.submit(fetch_source, url, target_domain): url for url in sources}
