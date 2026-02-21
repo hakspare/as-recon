@@ -41,7 +41,7 @@ Traditional tools often flood you with dead subdomains and wildcard junk. **AS-R
 Copy and paste to deploy globally in your Linux or Termux environment:
 
 ```bash
-git clone [https://github.com/hakspare/as-recon](https://github.com/hakspare/as-recon)
+git clone https://github.com/hakspare/as-recon
 cd as-recon
 chmod +x setup.sh && ./setup.sh
 
