@@ -16,67 +16,50 @@ LOGO = f"""{C}{B}
 {G}      Developed by Ajijul Islam Shohan (@hakspare){W}
 """
 
-def get_entropy(label):
-    if not label: return 0
-    prob = [n/len(label) for n in Counter(label).values()]
-    return -sum(p * math.log2(p) for p in prob)
-
 def is_valid_sub(sub, domain):
     sub = sub.lower().strip().strip('.')
     if sub.startswith("*."): sub = sub[2:]
     
-    # ১. Strict Anchor: ডোমেইনটা একদম শেষে থাকতে হবে এবং তার আগে শুধু একটা সাবডোমেইন পার্ট থাকবে
-    # এটি azprintbd.com.renesabazar.com কে সরাসরি রিজেক্ট করবে
+    # ১. Strict Validation: সাবডোমেইন অবশ্যই domain দিয়ে শেষ হতে হবে
     if not sub.endswith(f".{domain}") and sub != domain:
         return None
 
-    # ২. Garbage/Entropy Filter: সাবডোমেইনের প্রথম পার্ট চেক করা
-    parts = sub.replace(f".{domain}", "").split('.')
-    first_part = parts[0]
-    
-    # যদি মাঝখানে অন্য কোনো TLD থাকে (যেমন .com, .org) তবে ওটা সরাসরি বাদ
-    bad_tlds = ['com', 'org', 'net', 'edu', 'gov', 'co', 'biz', 'info']
-    if any(tld == p for p in parts for tld in bad_tlds):
+    # ২. Noise Filtering: সাবডোমেইন অংশে অন্য কোনো ডোমেইন এক্সটেনশন থাকা চলবে না
+    # এটি azprintbd.com.renesabazar.com কে সরাসরি ব্লক করবে
+    sub_part = sub.replace(domain, "").strip('.')
+    garbage_extensions = ['.com', '.org', '.net', '.edu', '.gov', '.co', '.bd']
+    if any(ext in sub_part for ext in garbage_extensions):
         return None
 
-    # এন্ট্রপি চেক (আপনার লজিক)
-    if get_entropy(first_part) > 3.6 and len(first_part) > 12:
+    # ৩. Entropy check: র‍্যান্ডম গারবেজ ক্যারেক্টার ফিল্টার
+    prob = [n/len(sub_part) for n in Counter(sub_part).values()] if sub_part else [0]
+    entropy = -sum(p * math.log2(p) for p in prob if p > 0)
+    if entropy > 3.7 and len(sub_part) > 12:
         return None
 
     return sub
 
-def resolves(sub):
-    try:
-        socket.gethostbyname(sub)
-        return True
-    except:
-        return False
-
 def fetch_source(url, domain):
     try:
-        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=12, verify=False)
+        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10, verify=False)
         if r.status_code == 200:
-            # ৩. Improved Regex: এটি শুধু আলফানিউমেরিক সাবডোমেইন ধরবে, ডট-ওয়ালা অন্য ডোমেইন নয়
+            # পাওয়ারফুল Regex যা শুধু ডোমেইন রিলেটেড স্ট্রিং ধরবে
             pattern = r'(?:[a-zA-Z0-9-]+\.)+' + re.escape(domain)
             raw = re.findall(pattern, r.text)
             
-            valid_set = set()
-            for s in raw:
-                v = is_valid_sub(s, domain)
-                if v: valid_set.add(v)
-            return list(valid_set)
+            # সরাসরি স্যানিটাইজেশন
+            return [s for s in raw if is_valid_sub(s, domain)]
     except: pass
     return []
 
 def main():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-d", "--domain", required=True)
-    parser.add_argument("--resolve", action="store_true")
     args = parser.parse_args()
 
     target = args.domain
     print(LOGO)
-    print(f"{C}[*] Initializing Strict-Filtering on: {target}{W}")
+    print(f"{C}[*] Hunting Subdomains for: {target}{W}")
     
     sources = [
         f"https://crt.sh/?q=%25.{target}",
@@ -86,29 +69,23 @@ def main():
         f"https://jldc.me/anubis/subdomains/{target}"
     ]
 
-    all_subs = set()
+    all_found = set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_source, url, target): url for url in sources}
         for f in concurrent.futures.as_completed(futures):
             res = f.result()
-            if res: all_subs.update(res)
+            if res: all_found.update(res)
 
-    final_list = sorted(list(all_subs))
+    # ফাইনাল ক্লিনআপ এবং ডুপ্লিকেট রিমুভ
+    final_results = sorted(list(all_found))
     
-    print(f"{G}[+]{W} Total Potential Targets: {B}{len(final_list)}{W}\n")
+    print(f"{G}[+]{W} Total Unique Cleaned Targets: {B}{len(final_results)}{W}\n")
     
-    count = 0
-    for s in final_list:
-        if args.resolve:
-            if resolves(s):
-                print(f" {G}»{W} {s}")
-                count += 1
-        else:
-            print(f" {C}»{W} {s}")
-            count += 1
+    for s in final_results:
+        print(f" {C}»{W} {s}")
 
     print(f"\n{G}┌──────────────────────────────────────────────┐{W}")
-    print(f"{G}│{W}  {B}TOTAL CLEANED: {count:<10}{W}               {G}│{W}")
+    print(f"{G}│{W}  {B}SCAN SUMMARY: {len(final_results):<10}{W}             {G}│{W}")
     print(f"{G}└──────────────────────────────────────────────┘{W}")
 
 if __name__ == "__main__":
