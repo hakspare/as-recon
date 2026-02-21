@@ -16,34 +16,31 @@ LOGO = f"""{C}{B}
 {G}      Developed by Ajijul Islam Shohan (@hakspare){W}
 """
 
-def clean_subdomain(sub, domain):
+def strict_filter(sub, domain):
     """
-    👉 Strict Sanitizer: ভুল ডোমেইন লিকেজ এবং নোইজ ডাটা ফিল্টার করে।
+    High-Level Filtering Logic:
+    ১. মেইন ডোমেইন ছাড়া অন্য কোনো ডোমেইন লিকেজ (like .com.bd.target.com) ব্লক করবে।
+    ২. ডাবল ডট বা ইনভ্যালিড ক্যারেক্টার ক্লিন করবে।
+    ৩. শুধু জেনুইন সাবডোমেইন রিটার্ন করবে।
     """
     sub = sub.lower().strip().strip('.')
     
-    # ১. সার্টিফিকেট স্টার/ওয়াইল্ডকার্ড রিমুভাল
+    # সার্টিফিকেট স্টার রিমুভ
     if sub.startswith("*."): sub = sub[2:]
     
-    # ২. Noise Filtering: সাবডোমেইনের মাঝখানে অন্য কোনো TLD (.com, .org) থাকলে বাদ
-    # এটি azprintbd.com.renesabazar.com এর মতো ভুল ডাটা ব্লক করবে
-    invalid_tlds = ['.com.', '.org.', '.net.', '.edu.', '.gov.', '.xyz.', '.info.']
-    if any(tld in sub for tld in invalid_tlds):
-        return None
-
-    # ৩. ডাবল ডোমেইন ডিটেকশন (target.com.target.com)
-    if sub.count(domain) > 1:
-        return None
-
-    # ৪. Regex Validation: শুধু ভ্যালিড ক্যারেক্টার এবং সঠিক ডোমেইন ফরমেট নিশ্চিত করা
-    pattern = re.compile(r'^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+' + re.escape(domain) + '$')
-    if not pattern.match(sub):
-        return None
+    # Noise Filtering: ডোমেইনের মাঝখানে অন্য TLD থাকলে সেটা ভুয়া (যেমন: example.com.renesabazar.com)
+    # আমরা শুধু চেক করবো ডোমেইনের আগে কয়টা পার্ট আছে
+    if sub.count(domain) > 1: return None
     
-    # ৫. সেলফ-ডোমেইন ফিল্টার
-    if sub == domain:
-        return None
-        
+    # ভ্যালিড সাবডোমেইন চেক (Regex: Strict Mode)
+    # এটি নিশ্চিত করবে ডোমেইনের আগে শুধু আলফানিউমেরিক ক্যারেক্টার আছে
+    pattern = re.compile(r'^([a-z0-9-]+\.)+' + re.escape(domain) + '$')
+    if not pattern.match(sub): return None
+
+    # অতিরিক্ত সুরক্ষার জন্য ডাবল ডোমেইন এক্সটেনশন চেক
+    forbidden_leak = ['.com.', '.net.', '.org.', '.info.', '.edu.', '.gov.']
+    if any(leak in sub for leak in forbidden_leak): return None
+
     return sub
 
 def fetch_source(url, domain):
@@ -55,38 +52,35 @@ def fetch_source(url, domain):
             
             cleaned = set()
             for s in raw_subs:
-                c = clean_subdomain(s, domain)
+                c = strict_filter(s, domain)
                 if c: cleaned.add(c)
             return list(cleaned)
     except: pass
     return []
 
-# ... [Intelligence Class and live check logic remains same] ...
+# [Intelligence Class & Check Live Logic remains same for efficiency]
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter, description=LOGO, add_help=False)
     target_grp = parser.add_argument_group(f'{Y}TARGET OPTIONS{W}')
-    target_grp.add_argument("-d", "--domain", required=True, help="Domain to scan")
+    target_grp.add_argument("-d", "--domain", required=True, help="Target domain")
     
     mode_grp = parser.add_argument_group(f'{Y}SCAN MODES{W}')
-    mode_grp.add_argument("--live", action="store_true", help="Check for live hosts")
+    mode_grp.add_argument("--live", action="store_true", help="Enable live host checking")
     
     perf_grp = parser.add_argument_group(f'{Y}PERFORMANCE{W}')
     perf_grp.add_argument("-t", "--threads", type=int, default=60, help="Threads (Default: 60)")
     
-    out_grp = parser.add_argument_group(f'{Y}OUTPUT{W}')
-    out_grp.add_argument("-o", "--output", help="Save text results to file")
-    
     sys_grp = parser.add_argument_group(f'{Y}SYSTEM{W}')
-    sys_grp.add_argument("-h", "--help", action="help", help="Show advanced help menu")
+    sys_grp.add_argument("-h", "--help", action="help", help="Show help")
 
     if len(sys.argv) == 1:
         print(LOGO); parser.print_help(); sys.exit()
+        
     args = parser.parse_args()
-
     start_time = time.time()
     target = args.domain
-    
+
     sources = [
         f"https://crt.sh/?q=%25.{target}",
         f"https://api.subdomain.center/api/index.php?domain={target}",
@@ -95,7 +89,7 @@ def main():
         f"https://jldc.me/anubis/subdomains/{target}"
     ]
 
-    print(f"{B}{C}[*] Initializing Intelligence on: {target}{W}")
+    print(f"{C}[*] Initializing Strict-Intelligence on: {target}{W}")
     
     raw_results = set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
@@ -106,16 +100,18 @@ def main():
 
     final_list = sorted(list(raw_results))
 
+    print(f"{Y}[*] Hunting Finished. Applying High-Level Filters...{W}")
+    
     if not final_list:
-        print(f"{R}[!] No valid discovery data found.{W}")
+        print(f"{R}[!] No valid subdomains found.{W}")
     else:
-        print(f"{G}[+]{W} Total Potential Targets: {B}{len(final_list)}{W}\n")
+        print(f"{G}[+]{W} Unique Cleaned Targets: {B}{len(final_list)}{W}\n")
         for s in final_list:
             print(f" {C}»{W} {s}")
 
     duration = round(time.time() - start_time, 2)
     print(f"\n{G}┌──────────────────────────────────────────────┐{W}")
-    print(f"{G}│{W}  {B}SCAN SUMMARY (v10.2){W}                     {G}│{W}")
+    print(f"{G}│{W}  {B}SCAN SUMMARY (v10.2 PRO){W}                 {G}│{W}")
     print(f"{G}├──────────────────────────────────────────────┤{W}")
     print(f"{G}│{W}  {C}Total Found   :{W} {B}{len(final_list):<10}{W}             {G}│{W}")
     print(f"{G}│{W}  {C}Time Elapsed  :{W} {B}{duration:<10} seconds{W}     {G}│{W}")
