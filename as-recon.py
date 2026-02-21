@@ -18,10 +18,9 @@ LOGO = f"""{C}{B}
 """
 
 class ReconEngine:
-    def __init__(self, domain, threads=50, timeout=15):
+    def __init__(self, domain, threads=50):
         self.domain = domain
         self.threads = threads
-        self.timeout = timeout
         self.wildcard_ips = set()
         self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AS-Recon/10.2"
 
@@ -31,7 +30,7 @@ class ReconEngine:
                 rand = "".join(random.choices(string.ascii_lowercase, k=12)) + "." + self.domain
                 ip = socket.gethostbyname(rand)
                 self.wildcard_ips.add(ip)
-            return len(self.wildcard_ips) > 0
+            return True
         except: return False
 
 def get_entropy(label):
@@ -44,10 +43,12 @@ def is_valid_sub(sub, domain):
     if sub.startswith("*."): sub = sub[2:]
     if not sub.endswith(f".{domain}") and sub != domain: return None
     
-    # Noise/Garbage Filtering
+    # Anti-Noise / Double-Domain Filtering
     sub_part = sub.replace(domain, "").strip('.')
     bad_ext = ['.com', '.org', '.net', '.edu', '.gov', '.co', '.bd', '.io', '.me']
     if any(ext in sub_part for ext in bad_ext): return None
+    
+    # Entropy Check for Random Strings
     if get_entropy(sub_part) > 3.8 and len(sub_part) > 14: return None
     return sub
 
@@ -67,25 +68,25 @@ def check_live(subdomain, engine):
         if ip in engine.wildcard_ips: return None
         r = requests.get(f"http://{subdomain}", timeout=5, verify=False, allow_redirects=True, headers={"User-Agent": engine.ua})
         sc = r.status_code
-        server = r.headers.get('Server', 'Unknown')[:15]
+        srv = r.headers.get('Server', 'Unknown')[:12]
         color = G if sc == 200 else Y if sc in [403, 401] else R
-        return f" {C}»{W} {subdomain.ljust(35)} {B}{color}[{sc}]{W} {G}[{ip}]{W} {Y}({server}){W}", subdomain
+        return f" {C}»{W} {subdomain.ljust(35)} {B}{color}[{sc}]{W} {G}[{ip}]{W} {Y}({srv}){W}", subdomain
     except: return None
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter, description=LOGO, add_help=False)
     
     tg = parser.add_argument_group(f'{Y}TARGET CONFIGURATION{W}')
-    tg.add_argument("-d", "--domain", metavar="google.com", help="Target domain")
-    tg.add_argument("-dL", "--list", metavar="list.txt", help="Scan multiple domains from file")
+    tg.add_argument("-d", "--domain", help="Target domain (e.g. google.com)")
+    tg.add_argument("-dL", "--list", help="Scan multiple domains from file")
 
     md = parser.add_argument_group(f'{Y}DISCOVERY MODES{W}')
     md.add_argument("--live", action="store_true", help="Perform HTTP live check")
-    md.add_argument("--silent", action="store_true", help="Output only subdomains (for piping)")
+    md.add_argument("--silent", action="store_true", help="Output only subdomains")
 
     pf = parser.add_argument_group(f'{Y}PERFORMANCE & FILTER{W}')
     pf.add_argument("-t", "--threads", type=int, default=50, help="Threads (Default: 50)")
-    pf.add_argument("-ex", "--exclude", help="Exclude subdomains (comma separated)")
+    pf.add_argument("-ex", "--exclude", help="Exclude keywords (comma separated)")
 
     ot = parser.add_argument_group(f'{Y}OUTPUT OPTIONS{W}')
     ot.add_argument("-o", "--output", help="Save results to text file")
@@ -95,22 +96,22 @@ def main():
 
     if len(sys.argv) == 1:
         print(LOGO); parser.print_help(); sys.exit()
+    
     args = parser.parse_args()
-
     if not args.silent: print(LOGO)
 
     target_domains = []
     if args.domain: target_domains.append(args.domain)
     if args.list:
-        with open(args.list, 'r') as f:
-            target_domains.extend([line.strip() for line in f if line.strip()])
+        if os.path.exists(args.list):
+            with open(args.list, 'r') as f:
+                target_domains.extend([l.strip() for l in f if l.strip()])
 
     for target in target_domains:
-        if not args.silent: print(f"{C}[*] Initializing Overlord Engine on: {target}{W}")
+        if not args.silent: print(f"{C}[*] Initializing Overlord Engine on: {B}{target}{W}")
         engine = ReconEngine(target, threads=args.threads)
         start_time = time.time()
 
-        # ১০০+ সোর্সের এগ্রিগেটর
         sources = [
             f"https://crt.sh/?q=%25.{target}",
             f"https://api.subdomain.center/api/index.php?domain={target}",
@@ -118,10 +119,10 @@ def main():
             f"https://api.hackertarget.com/hostsearch/?q={target}",
             f"https://jldc.me/anubis/subdomains/{target}",
             f"https://urlscan.io/api/v1/search/?q=domain:{target}",
+            f"https://api.threatminer.org/v2/domain.php?q={target}&rt=5",
             f"https://web.archive.org/cdx/search/cdx?url=*.{target}/*&output=json&collapse=urlkey",
             f"https://sonar.omnisint.io/all/{target}",
-            f"https://api.certspotter.com/v1/issuances?domain={target}&include_subdomains=true&expand=dns_names",
-            f"https://www.virustotal.com/ui/domains/{target}/subdomains?limit=40"
+            f"https://api.certspotter.com/v1/issuances?domain={target}&include_subdomains=true&expand=dns_names"
         ]
 
         passive_results = set()
@@ -132,28 +133,26 @@ def main():
                 if res: passive_results.update(res)
 
         final_list = sorted(list(passive_results))
-        
-        # Exclude filter
         if args.exclude:
-            ex_list = args.exclude.split(',')
-            final_list = [s for s in final_list if not any(ex in s for ex in ex_list)]
+            ex_keywords = args.exclude.split(',')
+            final_list = [s for s in final_list if not any(k in s for k in ex_keywords)]
 
-        # --- Output Logic ---
         valid_subs = []
         if args.live:
-            if not args.silent: print(f"{Y}[*] Checking {len(final_list)} targets for live status...{W}")
+            if not args.silent: print(f"{Y}[*] Checking live status for {len(final_list)} targets...{W}")
+            engine.detect_wildcard()
             with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
                 jobs = [executor.submit(check_live, s, engine) for s in final_list]
                 for j in concurrent.futures.as_completed(jobs):
                     res = j.result()
                     if res:
-                        if not args.silent: print(res[0])
-                        else: print(res[1])
+                        if args.silent: print(res[1])
+                        else: print(res[0])
                         valid_subs.append(res[1])
         else:
             for s in final_list:
-                if not args.silent: print(f" {C}»{W} {s}")
-                else: print(s)
+                if args.silent: print(s)
+                else: print(f" {C}»{W} {s}")
                 valid_subs.append(s)
 
         duration = round(time.time() - start_time, 2)
@@ -164,7 +163,7 @@ def main():
 
         if not args.silent:
             print(f"\n{G}┌──────────────────────────────────────────────┐{W}")
-            print(f"{G}│{W}  {B}SCAN SUMMARY (CENTURY EDITION){W}           {G}│{W}")
+            print(f"{G}│{W}  {B}SCAN SUMMARY (v10.2 OVERLORD){W}            {G}│{W}")
             print(f"{G}├──────────────────────────────────────────────┤{W}")
             print(f"{G}│{W}  {C}Total Found   :{W} {B}{len(valid_subs):<10}{W}             {G}│{W}")
             print(f"{G}│{W}  {C}Time Elapsed  :{W} {B}{duration:<10} seconds{W}     {G}│{W}")
