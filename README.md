@@ -1,5 +1,5 @@
-# AS-RECON v19.0
 
+# AS-RECON v19.0  
 **Amass-Level Subdomain Recon Tool**
 █████╗ ███████╗      ██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
 ██╔══██╗██╔════╝      ██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║
@@ -7,7 +7,7 @@
 ██╔══██║╚════██║      ██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║
 ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
 ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
-Passive → Hybrid → Graph | Built for Scale
+**Passive → Hybrid → Graph | Built for Scale**
 
 ### Features
 - 10+ passive sources (crt.sh, AlienVault, BufferOver, Chaos, VirusTotal ইত্যাদি)
@@ -25,14 +25,12 @@ git clone https://github.com/yourusername/as-recon.git
 cd as-recon
 chmod +x setup.sh
 ./setup.sh
-
 এরপর যেকোনো জায়গা থেকে চালাতে পারবেন:
 as-recon example.com
 Usage
-# Basic
+Basic
 as-recon target.com
-
-# Advanced
+Advanced
 as-recon target.com --threads 200 --rate 100 --depth 5 --api-keys api_keys.json
 API keys ফাইলের উদাহরণ (api_keys.json):
 {
