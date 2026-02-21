@@ -5,7 +5,7 @@ from random import choices
 # SSL Warnings বন্ধ করা
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- কালার এবং লোগো ---
+# --- কালার এবং ডিজাইন ---
 C, G, Y, R, M, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[95m', '\033[0m', '\033[1m'
 
 LOGO = f"""{C}{B}
@@ -61,16 +61,15 @@ def check_live_ultimate(subdomain, intel):
     except: return None
 
 def main():
-    # --- প্রফেশনাল হেল্প মেনু সেটআপ ---
+    # --- কাস্টম প্রফেশনাল হেল্প মেনু ---
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=LOGO,
         add_help=False
     )
     
-    # গ্রুপ ভিত্তিক কমান্ড সাজানো
     target = parser.add_argument_group(f'{Y}TARGET OPTIONS{W}')
-    target.add_argument("-d", "--domain", metavar="DOMAIN", required=True, help="Target domain to scan (e.g. google.com)")
+    target.add_argument("-d", "--domain", metavar="DOMAIN", required=True, help="Target domain to scan (e.g. example.com)")
     
     mode = parser.add_argument_group(f'{Y}SCAN MODES{W}')
     mode.add_argument("--live", action="store_true", help="Check for live hosts (Status, CDN, IP, Server)")
@@ -79,12 +78,11 @@ def main():
     perf.add_argument("-t", "--threads", type=int, default=60, metavar="NUM", help="Threads for live check (Default: 60)")
     
     out = parser.add_argument_group(f'{Y}OUTPUT OPTIONS{W}')
-    out.add_argument("-o", "--output", metavar="FILE", help="Save the clean list of subdomains to a file")
+    out.add_argument("-o", "--output", metavar="FILE", help="Save the clean results to a text file")
     
     sys_opt = parser.add_argument_group(f'{Y}SYSTEM{W}')
     sys_opt.add_argument("-h", "--help", action="help", help="Show this professional help menu and exit")
 
-    # যদি ডোমেইন না দেওয়া হয় তবে লোগোসহ হেল্প দেখাবে
     if len(sys.argv) == 1:
         print(LOGO)
         parser.print_help()
@@ -92,7 +90,7 @@ def main():
 
     args = parser.parse_args()
 
-    # --- অরিজিনাল ফাস্ট ইঞ্জিন শুরু ---
+    # --- আগের সেই সুপারফাস্ট ইঞ্জিন লজিক ---
     start_time = time.time()
     target_domain = args.domain
     intel = Intelligence(target_domain)
