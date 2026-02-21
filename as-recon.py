@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import requests, urllib3, sys, concurrent.futures, re, time, argparse, socket, random, string, math
+import requests, urllib3, sys, concurrent.futures, re, time, argparse, socket, math
 from collections import Counter
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -17,6 +17,7 @@ LOGO = f"""{C}{B}
 """
 
 def get_entropy(label):
+    if not label: return 0
     prob = [n/len(label) for n in Counter(label).values()]
     return -sum(p * math.log2(p) for p in prob)
 
@@ -24,19 +25,23 @@ def is_valid_sub(sub, domain):
     sub = sub.lower().strip().strip('.')
     if sub.startswith("*."): sub = sub[2:]
     
-    # ১. Strict Domain Match (অন্য ডোমেইন লিক হওয়া বন্ধ করবে)
-    if not sub.endswith(domain) or sub == domain: return None
-    
-    # ২. Garbage/Entropy Filter (আপনার দেওয়া ৩.৫ থ্রেশহোল্ড)
-    first_part = sub.split('.')[0]
-    if get_entropy(first_part) > 3.5 and len(first_part) > 12: return None
-    
-    # ৩. Double TLD Leakage (azprintbd.com.renesabazar.com বাদ দিবে)
-    bad_patterns = ['.com.', '.net.', '.org.', '.edu.', '.gov.', '.co.']
-    if any(p in sub for p in bad_patterns): return None
+    # ১. Strict Anchor: ডোমেইনটা একদম শেষে থাকতে হবে এবং তার আগে শুধু একটা সাবডোমেইন পার্ট থাকবে
+    # এটি azprintbd.com.renesabazar.com কে সরাসরি রিজেক্ট করবে
+    if not sub.endswith(f".{domain}") and sub != domain:
+        return None
 
-    # ৪. Duplicate domain count check
-    if sub.count(domain) > 1: return None
+    # ২. Garbage/Entropy Filter: সাবডোমেইনের প্রথম পার্ট চেক করা
+    parts = sub.replace(f".{domain}", "").split('.')
+    first_part = parts[0]
+    
+    # যদি মাঝখানে অন্য কোনো TLD থাকে (যেমন .com, .org) তবে ওটা সরাসরি বাদ
+    bad_tlds = ['com', 'org', 'net', 'edu', 'gov', 'co', 'biz', 'info']
+    if any(tld == p for p in parts for tld in bad_tlds):
+        return None
+
+    # এন্ট্রপি চেক (আপনার লজিক)
+    if get_entropy(first_part) > 3.6 and len(first_part) > 12:
+        return None
 
     return sub
 
@@ -44,15 +49,22 @@ def resolves(sub):
     try:
         socket.gethostbyname(sub)
         return True
-    except: return False
+    except:
+        return False
 
 def fetch_source(url, domain):
     try:
-        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10, verify=False)
+        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=12, verify=False)
         if r.status_code == 200:
+            # ৩. Improved Regex: এটি শুধু আলফানিউমেরিক সাবডোমেইন ধরবে, ডট-ওয়ালা অন্য ডোমেইন নয়
             pattern = r'(?:[a-zA-Z0-9-]+\.)+' + re.escape(domain)
             raw = re.findall(pattern, r.text)
-            return [s for s in raw if is_valid_sub(s, domain)]
+            
+            valid_set = set()
+            for s in raw:
+                v = is_valid_sub(s, domain)
+                if v: valid_set.add(v)
+            return list(valid_set)
     except: pass
     return []
 
@@ -64,7 +76,7 @@ def main():
 
     target = args.domain
     print(LOGO)
-    print(f"{C}[*] Initializing High-Level Filtering on: {target}{W}")
+    print(f"{C}[*] Initializing Strict-Filtering on: {target}{W}")
     
     sources = [
         f"https://crt.sh/?q=%25.{target}",
@@ -74,34 +86,29 @@ def main():
         f"https://jldc.me/anubis/subdomains/{target}"
     ]
 
-    all_found = set()
+    all_subs = set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_source, url, target): url for url in sources}
         for f in concurrent.futures.as_completed(futures):
             res = f.result()
-            if res:
-                for s in res:
-                    valid = is_valid_sub(s, target)
-                    if valid: all_found.add(valid)
+            if res: all_subs.update(res)
 
-    # রেজাল্ট সর্টিং এবং ক্লিন ডাইরেক্ট আউটপুট
-    final = sorted(list(all_found))
+    final_list = sorted(list(all_subs))
     
-    # DNS Resolution Filter (আপনার রিকোয়েস্ট অনুযায়ী)
-    valid_subs = []
-    print(f"{Y}[*] Validating {len(final)} candidates...{W}")
+    print(f"{G}[+]{W} Total Potential Targets: {B}{len(final_list)}{W}\n")
     
-    for s in final:
+    count = 0
+    for s in final_list:
         if args.resolve:
             if resolves(s):
                 print(f" {G}»{W} {s}")
-                valid_subs.append(s)
+                count += 1
         else:
             print(f" {C}»{W} {s}")
-            valid_subs.append(s)
+            count += 1
 
     print(f"\n{G}┌──────────────────────────────────────────────┐{W}")
-    print(f"{G}│{W}  {B}TOTAL CLEANED FOUND: {len(valid_subs):<10}{W}      {G}│{W}")
+    print(f"{G}│{W}  {B}TOTAL CLEANED: {count:<10}{W}               {G}│{W}")
     print(f"{G}└──────────────────────────────────────────────┘{W}")
 
 if __name__ == "__main__":
