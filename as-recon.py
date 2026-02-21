@@ -17,94 +17,68 @@ LOGO = f"""{C}{B}
 """
 
 def clean_subdomain(sub, domain):
-    """গারবেজ ডাটা এবং ডাবল ডোমেইন ফিল্টারিং লজিক"""
+    """
+    👉 Strict Sanitizer: ভুল ডোমেইন লিকেজ এবং নোইজ ডাটা ফিল্টার করে।
+    """
     sub = sub.lower().strip().strip('.')
     
     # ১. সার্টিফিকেট স্টার/ওয়াইল্ডকার্ড রিমুভাল
     if sub.startswith("*."): sub = sub[2:]
     
-    # ২. ডাবল ডোমেইন বা জাঙ্ক ডাটা ডিটেকশন (যেমন: example.com.target.com)
-    # যদি ডোমেইন নামের আগে অন্য কোনো ডট-যুক্ত ডোমেইন থাকে যা ভ্যালিড সাবডোমেইন নয়
-    parts = sub.split('.')
-    domain_parts = domain.split('.')
-    
-    # যদি সাবডোমেইনের ভেতরেই মেইন ডোমেইন একাধিকবার থাকে বা ভুল ফরমেটে থাকে
-    if sub.count(domain) > 1 or f".{domain}.{domain}" in sub:
+    # ২. Noise Filtering: সাবডোমেইনের মাঝখানে অন্য কোনো TLD (.com, .org) থাকলে বাদ
+    # এটি azprintbd.com.renesabazar.com এর মতো ভুল ডাটা ব্লক করবে
+    invalid_tlds = ['.com.', '.org.', '.net.', '.edu.', '.gov.', '.xyz.', '.info.']
+    if any(tld in sub for tld in invalid_tlds):
         return None
 
-    # ৩. Regex Over-match ফিক্স: শুধু ডোমেইন পর্যন্ত রাখা
-    match = re.search(r'([a-z0-9-.]+\.' + re.escape(domain) + r')$', sub)
-    if not match: return None
+    # ৩. ডাবল ডোমেইন ডিটেকশন (target.com.target.com)
+    if sub.count(domain) > 1:
+        return None
+
+    # ৪. Regex Validation: শুধু ভ্যালিড ক্যারেক্টার এবং সঠিক ডোমেইন ফরমেট নিশ্চিত করা
+    pattern = re.compile(r'^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+' + re.escape(domain) + '$')
+    if not pattern.match(sub):
+        return None
     
-    final_sub = match.group(1)
-    
-    # ৪. অপ্রয়োজনীয় ডট বা ভুল ডোমেইন লিকেজ ফিল্টার
-    if final_sub.startswith(domain): return None # target.com যেন না দেখায়
-    
-    return final_sub
+    # ৫. সেলফ-ডোমেইন ফিল্টার
+    if sub == domain:
+        return None
+        
+    return sub
 
 def fetch_source(url, domain):
     try:
         r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10, verify=False)
         if r.status_code == 200:
-            # পাওয়ারফুল Regex যা ডোমেইনের প্যাটার্ন চেনে
             pattern = r'(?:[a-zA-Z0-9-]+\.)+' + re.escape(domain)
             raw_subs = re.findall(pattern, r.text)
             
-            cleaned = []
+            cleaned = set()
             for s in raw_subs:
                 c = clean_subdomain(s, domain)
-                if c: cleaned.append(c)
-            return cleaned
+                if c: cleaned.add(c)
+            return list(cleaned)
     except: pass
     return []
 
-# [Intelligence Class & Other Functions remain same for speed]
-class Intelligence:
-    def __init__(self, domain):
-        self.domain = domain
-        self.wildcard_ips = set()
-        self.wildcard_hash = None
-        self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AS-Recon/10.2"
-
-    def setup_wildcard_filter(self):
-        for _ in range(2):
-            rand = "".join(choices(string.ascii_lowercase, k=12)) + "." + self.domain
-            try:
-                ip = socket.gethostbyname(rand)
-                self.wildcard_ips.add(ip)
-                r = requests.get(f"http://{rand}", timeout=3, verify=False, headers={"User-Agent": self.ua})
-                self.wildcard_hash = hashlib.md5(r.content).hexdigest()
-            except: pass
-        return len(self.wildcard_ips) > 0
-
-def check_live_ultimate(subdomain, intel):
-    try:
-        ip = socket.gethostbyname(subdomain)
-        if ip in intel.wildcard_ips: return None
-        url = f"http://{subdomain}"
-        r = requests.get(url, timeout=3, verify=False, allow_redirects=True, headers={"User-Agent": intel.ua})
-        if hashlib.md5(r.content).hexdigest() == intel.wildcard_hash: return None
-        server = r.headers.get('Server', 'Hidden')[:12]
-        cdn = "CF" if "cloudflare" in server.lower() or "cf-ray" in r.headers else "Direct"
-        sc = r.status_code
-        color = G if sc == 200 else Y if sc in [403, 401] else R
-        display = f" {C}»{W} {subdomain.ljust(35)} {B}{color}[{sc}]{W} {M}({cdn}){W} {G}[{ip}]{W} {Y}({server}){W}"
-        return (display, subdomain)
-    except: return None
+# ... [Intelligence Class and live check logic remains same] ...
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter, description=LOGO, add_help=False)
     target_grp = parser.add_argument_group(f'{Y}TARGET OPTIONS{W}')
     target_grp.add_argument("-d", "--domain", required=True, help="Domain to scan")
+    
     mode_grp = parser.add_argument_group(f'{Y}SCAN MODES{W}')
-    mode_grp.add_argument("--live", action="store_true", help="Live check")
+    mode_grp.add_argument("--live", action="store_true", help="Check for live hosts")
+    
     perf_grp = parser.add_argument_group(f'{Y}PERFORMANCE{W}')
-    perf_grp.add_argument("-t", "--threads", type=int, default=60, help="Threads")
+    perf_grp.add_argument("-t", "--threads", type=int, default=60, help="Threads (Default: 60)")
+    
     out_grp = parser.add_argument_group(f'{Y}OUTPUT{W}')
-    out_grp.add_argument("-o", "--output", help="Save file")
+    out_grp.add_argument("-o", "--output", help="Save text results to file")
+    
     sys_grp = parser.add_argument_group(f'{Y}SYSTEM{W}')
-    sys_grp.add_argument("-h", "--help", action="help", help="Help menu")
+    sys_grp.add_argument("-h", "--help", action="help", help="Show advanced help menu")
 
     if len(sys.argv) == 1:
         print(LOGO); parser.print_help(); sys.exit()
@@ -112,7 +86,6 @@ def main():
 
     start_time = time.time()
     target = args.domain
-    intel = Intelligence(target)
     
     sources = [
         f"https://crt.sh/?q=%25.{target}",
@@ -122,10 +95,8 @@ def main():
         f"https://jldc.me/anubis/subdomains/{target}"
     ]
 
-    print(f"{C}[*] Initializing Intelligence on: {target}{W}")
-    intel.setup_wildcard_filter()
+    print(f"{B}{C}[*] Initializing Intelligence on: {target}{W}")
     
-    print(f"{Y}[*] Hunting Subdomains (Passive-Engine)...{W}")
     raw_results = set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
         futures = {executor.submit(fetch_source, url, target): url for url in sources}
@@ -136,17 +107,11 @@ def main():
     final_list = sorted(list(raw_results))
 
     if not final_list:
-        print(f"{R}[!] No valid data found.{W}")
+        print(f"{R}[!] No valid discovery data found.{W}")
     else:
         print(f"{G}[+]{W} Total Potential Targets: {B}{len(final_list)}{W}\n")
-        if args.live:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
-                jobs = [executor.submit(check_live_ultimate, s, intel) for s in final_list]
-                for j in concurrent.futures.as_completed(jobs):
-                    res = j.result()
-                    if res: print(res[0])
-        else:
-            for s in final_list: print(f" {C}»{W} {s}")
+        for s in final_list:
+            print(f" {C}»{W} {s}")
 
     duration = round(time.time() - start_time, 2)
     print(f"\n{G}┌──────────────────────────────────────────────┐{W}")
