@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-import requests, urllib3, sys, concurrent.futures, re, time, argparse, socket, hashlib, string, random, math
+import requests, urllib3, sys, concurrent.futures, re, time, argparse, socket, random, string, math
 from collections import Counter
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- UI & Colors ---
 C, G, Y, R, M, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[95m', '\033[0m', '\033[1m'
 
 LOGO = f"""{C}{B}
@@ -17,99 +16,56 @@ LOGO = f"""{C}{B}
 {G}      Developed by Ajijul Islam Shohan (@hakspare){W}
 """
 
-class ReconEngine:
-    def __init__(self, domain):
-        self.domain = domain
-        self.wildcard_ip = None
-        self.is_wildcard = False
+def get_entropy(label):
+    prob = [n/len(label) for n in Counter(label).values()]
+    return -sum(p * math.log2(p) for p in prob)
 
-    def detect_wildcard(self):
-        """আপনার দেওয়া কনসেপ্ট: ওয়াইল্ডকার্ড ডিএনএস ডিটেকশন"""
-        try:
-            rand_sub = "".join(random.choice(string.ascii_lowercase) for _ in range(12)) + "." + self.domain
-            ip1 = socket.gethostbyname(rand_sub)
-            rand_sub2 = "".join(random.choice(string.ascii_lowercase) for _ in range(12)) + "." + self.domain
-            ip2 = socket.gethostbyname(rand_sub2)
-            if ip1 == ip2:
-                self.is_wildcard = True
-                self.wildcard_ip = ip1
-                return True
-        except: pass
-        return False
+def is_valid_sub(sub, domain):
+    sub = sub.lower().strip().strip('.')
+    if sub.startswith("*."): sub = sub[2:]
+    
+    # ১. Strict Domain Match (অন্য ডোমেইন লিক হওয়া বন্ধ করবে)
+    if not sub.endswith(domain) or sub == domain: return None
+    
+    # ২. Garbage/Entropy Filter (আপনার দেওয়া ৩.৫ থ্রেশহোল্ড)
+    first_part = sub.split('.')[0]
+    if get_entropy(first_part) > 3.5 and len(first_part) > 12: return None
+    
+    # ৩. Double TLD Leakage (azprintbd.com.renesabazar.com বাদ দিবে)
+    bad_patterns = ['.com.', '.net.', '.org.', '.edu.', '.gov.', '.co.']
+    if any(p in sub for p in bad_patterns): return None
 
-    def get_entropy(self, label):
-        """Entropy Filter: গারবেজ সাবডোমেইন চেনার লজিক"""
-        prob = [n/len(label) for n in Counter(label).values()]
-        return -sum(p * math.log2(p) for p in prob)
+    # ৪. Duplicate domain count check
+    if sub.count(domain) > 1: return None
 
-    def is_valid_sub(self, sub):
-        """High-Level Filtering Pipeline"""
-        sub = sub.lower().strip().strip('.')
-        if sub.startswith("*."): sub = sub[2:]
-        
-        # ১. ডোমেইন লিকেজ ফিল্টার
-        if sub.count(self.domain) > 1 or not sub.endswith(self.domain): return None
-        
-        # ২. Entropy/Garbage Filter (যদি এন্ট্রপি ৩.৮ এর বেশি হয় তবে ওটা র‍্যান্ডম জাঙ্ক)
-        first_part = sub.split('.')[0]
-        if self.get_entropy(first_part) > 3.8 and len(first_part) > 10: return None
-        
-        # ৩. Cross-TLD Leakage (.com.bd.target.com)
-        if any(tld in sub for tld in ['.com.', '.net.', '.org.', '.edu.']): return None
+    return sub
 
-        return sub
-
-def resolve_dns(sub, engine):
-    """DNS Resolution লজিক"""
+def resolves(sub):
     try:
-        ip = socket.gethostbyname(sub)
-        if engine.is_wildcard and ip == engine.wildcard_ip:
-            return None
-        return (sub, ip)
-    except: return None
+        socket.gethostbyname(sub)
+        return True
+    except: return False
 
-def fetch_source(url, domain, engine):
+def fetch_source(url, domain):
     try:
         r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10, verify=False)
         if r.status_code == 200:
             pattern = r'(?:[a-zA-Z0-9-]+\.)+' + re.escape(domain)
             raw = re.findall(pattern, r.text)
-            cleaned = set()
-            for s in raw:
-                valid = engine.is_valid_sub(s)
-                if valid: cleaned.add(valid)
-            return list(cleaned)
+            return [s for s in raw if is_valid_sub(s, domain)]
     except: pass
     return []
 
 def main():
-    parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter, description=LOGO, add_help=False)
-    target_grp = parser.add_argument_group(f'{Y}TARGET OPTIONS{W}')
-    target_grp.add_argument("-d", "--domain", required=True, help="Domain to scan")
-    
-    mode_grp = parser.add_argument_group(f'{Y}SCAN MODES{W}')
-    mode_grp.add_argument("--resolve", action="store_true", help="Resolve DNS for subdomains")
-    
-    perf_grp = parser.add_argument_group(f'{Y}PERFORMANCE{W}')
-    perf_grp.add_argument("-t", "--threads", type=int, default=50, help="Threads (Default: 50)")
-    
-    sys_grp = parser.add_argument_group(f'{Y}SYSTEM{W}')
-    sys_grp.add_argument("-h", "--help", action="help", help="Show help")
-
-    if len(sys.argv) == 1:
-        print(LOGO); parser.print_help(); sys.exit()
-    
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("-d", "--domain", required=True)
+    parser.add_argument("--resolve", action="store_true")
     args = parser.parse_args()
+
     target = args.domain
-    engine = ReconEngine(target)
-    start_time = time.time()
-
-    print(f"{B}{C}[*] Wildcard Check...{W}", end="\r")
-    if engine.detect_wildcard():
-        print(f"{R}[!] Wildcard DNS Detected: {engine.wildcard_ip}{W}")
-    else:
-        print(f"{G}[✓] No Wildcard DNS Detected.       {W}")
-
+    print(LOGO)
+    print(f"{C}[*] Initializing High-Level Filtering on: {target}{W}")
+    
     sources = [
         f"https://crt.sh/?q=%25.{target}",
         f"https://api.subdomain.center/api/index.php?domain={target}",
@@ -118,36 +74,34 @@ def main():
         f"https://jldc.me/anubis/subdomains/{target}"
     ]
 
-    print(f"{Y}[*] Hunting Passive Data...{W}")
-    passive_results = set()
+    all_found = set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(fetch_source, url, target, engine): url for url in sources}
+        futures = {executor.submit(fetch_source, url, target): url for url in sources}
         for f in concurrent.futures.as_completed(futures):
             res = f.result()
-            if res: passive_results.update(res)
+            if res:
+                for s in res:
+                    valid = is_valid_sub(s, target)
+                    if valid: all_found.add(valid)
 
-    # --- Filtering & Resolving ---
-    final_output = []
-    if args.resolve:
-        print(f"{Y}[*] Resolving {len(passive_results)} targets...{W}")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
-            jobs = [executor.submit(resolve_dns, s, engine) for s in passive_results]
-            for j in concurrent.futures.as_completed(jobs):
-                res = j.result()
-                if res:
-                    print(f" {G}»{W} {res[0].ljust(35)} {C}[{res[1]}]{W}")
-                    final_output.append(res[0])
-    else:
-        for s in sorted(list(passive_results)):
+    # রেজাল্ট সর্টিং এবং ক্লিন ডাইরেক্ট আউটপুট
+    final = sorted(list(all_found))
+    
+    # DNS Resolution Filter (আপনার রিকোয়েস্ট অনুযায়ী)
+    valid_subs = []
+    print(f"{Y}[*] Validating {len(final)} candidates...{W}")
+    
+    for s in final:
+        if args.resolve:
+            if resolves(s):
+                print(f" {G}»{W} {s}")
+                valid_subs.append(s)
+        else:
             print(f" {C}»{W} {s}")
-            final_output.append(s)
+            valid_subs.append(s)
 
-    duration = round(time.time() - start_time, 2)
     print(f"\n{G}┌──────────────────────────────────────────────┐{W}")
-    print(f"{G}│{W}  {B}SCAN SUMMARY{W}                                {G}│{W}")
-    print(f"{G}├──────────────────────────────────────────────┤{W}")
-    print(f"{G}│{W}  {C}Total Found   :{W} {B}{len(final_output):<10}{W}             {G}│{W}")
-    print(f"{G}│{W}  {C}Time Elapsed  :{W} {B}{duration:<10} seconds{W}     {G}│{W}")
+    print(f"{G}│{W}  {B}TOTAL CLEANED FOUND: {len(valid_subs):<10}{W}      {G}│{W}")
     print(f"{G}└──────────────────────────────────────────────┘{W}")
 
 if __name__ == "__main__":
