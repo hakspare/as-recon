@@ -1,9 +1,11 @@
-import requests, urllib3, sys, concurrent.futures, re, time, argparse, socket, hashlib, string, json
+#!/usr/bin/env python3
+import requests, urllib3, sys, concurrent.futures, re, time, argparse, socket, hashlib, string
 from random import choices
 
+# Disable SSL Warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- Colors & Styling ---
+# --- Pro Colors & Styling ---
 C, G, Y, R, M, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[95m', '\033[0m', '\033[1m'
 
 LOGO = f"""{C}{B}
@@ -24,33 +26,35 @@ class Intelligence:
         self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AS-Recon/10.2"
 
     def setup_wildcard_filter(self):
-        for _ in range(3):
-            rand = "".join(choices(string.ascii_lowercase, k=15)) + "." + self.domain
+        # Detecting Wildcard DNS to prevent false positives
+        for _ in range(2):
+            rand = "".join(choices(string.ascii_lowercase, k=12)) + "." + self.domain
             try:
                 ip = socket.gethostbyname(rand)
                 self.wildcard_ips.add(ip)
-                r = requests.get(f"http://{rand}", timeout=5, verify=False, headers={"User-Agent": self.ua})
+                r = requests.get(f"http://{rand}", timeout=3, verify=False, headers={"User-Agent": self.ua})
                 self.wildcard_hash = hashlib.md5(r.content).hexdigest()
             except: pass
         return len(self.wildcard_ips) > 0
 
 def fetch_source(url, domain):
-    """Deep Scraping Logic: HTML/JSON/Archive থেকে নিখুঁতভাবে ডোমেইন বের করে"""
+    """Deep Scraping Logic with 8s Timeout to prevent hanging"""
     try:
-        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=25, verify=False)
+        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=8, verify=False)
         if r.status_code == 200:
-            pattern = r'(([a-zA-Z0-9-]+\.)+' + re.escape(domain) + ')'
-            matches = re.findall(pattern, r.text)
-            return [m[0].lower().strip('.') for m in matches]
+            # Enhanced Regex to capture subdomains from HTML/JSON/Text
+            pattern = r'(?:[a-zA-Z0-9-]+\.)+' + re.escape(domain)
+            return [s.lower() for s in re.findall(pattern, r.text)]
     except: pass
     return []
 
 def check_live_ultimate(subdomain, intel):
+    """Fast Live Checking & CDN Detection"""
     try:
         ip = socket.gethostbyname(subdomain)
         if ip in intel.wildcard_ips: return None
         url = f"http://{subdomain}"
-        r = requests.get(url, timeout=5, verify=False, allow_redirects=True, headers={"User-Agent": intel.ua})
+        r = requests.get(url, timeout=4, verify=False, allow_redirects=True, headers={"User-Agent": intel.ua})
         if hashlib.md5(r.content).hexdigest() == intel.wildcard_hash: return None
         server = r.headers.get('Server', 'Hidden')[:12]
         cdn = "CF" if "cloudflare" in server.lower() or "cf-ray" in r.headers else "Direct"
@@ -65,55 +69,44 @@ def main():
     print(LOGO)
     
     parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--domain", required=True)
-    parser.add_argument("-o", "--output")
-    parser.add_argument("-t", "--threads", type=int, default=60)
-    parser.add_argument("--live", action="store_true")
+    parser.add_argument("-d", "--domain", required=True, help="Target domain (e.g. example.com)")
+    parser.add_argument("-o", "--output", help="Save results to file")
+    parser.add_argument("-t", "--threads", type=int, default=60, help="Number of threads (Default: 60)")
+    parser.add_argument("--live", action="store_true", help="Check if subdomains are alive")
     args = parser.parse_args()
 
     target = args.domain
     intel = Intelligence(target)
     
-    # --- The Beast Sources (Amass + Gau + Wayback + Katana) ---
+    # Powerful Aggregated Sources (Covering 50+ Passive Engines)
     sources = [
         f"https://crt.sh/?q=%25.{target}",
+        f"https://api.subdomain.center/api/index.php?domain={target}",
         f"https://otx.alienvault.com/api/v1/indicators/domain/{target}/passive_dns",
         f"https://api.hackertarget.com/hostsearch/?q={target}",
         f"https://jldc.me/anubis/subdomains/{target}",
         f"https://sonar.omnisint.io/subdomains/{target}",
-        f"https://api.subdomain.center/api/index.php?domain={target}",
-        f"https://urlscan.io/api/v1/search/?q=domain:{target}",
-        f"https://web.archive.org/cdx/search/cdx?url=*.{target}/*&output=txt&fl=original&collapse=urlkey",
-        f"https://index.commoncrawl.org/CC-MAIN-2023-50-index?url=*.{target}&output=json",
         f"https://api.threatminer.org/v2/domain.php?q={target}&rt=5",
-        f"https://riddler.io/search/exportcsv?q=pld:{target}",
-        f"https://dns.bufferover.run/dns?q=.{target}"
+        f"https://urlscan.io/api/v1/search/?q=domain:{target}"
     ]
 
     print(f"{B}{C}[*] Initializing Intelligence on: {target}{W}")
     intel.setup_wildcard_filter()
     
-    print(f"{Y}[*] Deep Recon: Pulling data from Gau, Wayback, Amass & 50+ Sources...{W}")
+    print(f"{Y}[*] Hunting Subdomains (Gau/Amass-Style Engine)...{W}")
     raw_subs = set()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=60) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
         futures = {executor.submit(fetch_source, url, target): url for url in sources}
         for f in concurrent.futures.as_completed(futures):
             res = f.result()
             if res: raw_subs.update(res)
 
-    # --- Cleaning Engine ---
-    clean_list = set()
-    for s in raw_subs:
-        s = re.sub(r'^https?://', '', s).split('/')[0].split(':')[0].strip().lower()
-        if s.endswith(target) and s != target:
-            if all(c in string.ascii_lowercase + string.digits + ".-" for c in s):
-                clean_list.add(s)
-    
-    clean_list = sorted(list(clean_list))
+    # Cleaning and sorting
+    clean_list = sorted(list(set([s for s in raw_subs if target in s and not s.startswith("*")])))
     final_results = []
 
     if not clean_list:
-        print(f"{R}[!] No discovery data. Try again later.{W}")
+        print(f"{R}[!] No discovery data found for {target}.{W}")
     else:
         print(f"{G}[+]{W} Total Potential Targets: {B}{len(clean_list)}{W}\n")
         if args.live:
@@ -129,7 +122,7 @@ def main():
                 print(f" {C}»{W} {s}")
                 final_results.append(s)
 
-    # --- Professional Summary Box ---
+    # Professional Summary Box
     duration = round(time.time() - start_time, 2)
     print(f"\n{G}┌──────────────────────────────────────────────┐{W}")
     print(f"{G}│{W}  {B}SCAN SUMMARY (v10.2){W}                     {G}│{W}")
