@@ -1,36 +1,147 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+# =============================================================================
+# AS-RECON Setup Script v19.0
+# Installs dependencies and makes 'as-recon' command available globally
+# Requirements: Python 3.8+, curl, git
+# =============================================================================
+
+set -euo pipefail
 
 # Colors
-G='\033[92m'
-Y='\033[93m'
-B='\033[1m'
-W='\033[0m'
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-echo -e "${G}${B}[*] AS-RECON v10.2: Professional Installation Start...${W}"
+echo -e "${BLUE}"
+cat << "EOF"
+  █████╗ ███████╗      ██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
+ ██╔══██╗██╔════╝      ██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║
+ ███████║███████╗      ██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║
+ ██╔══██║╚════██║      ██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║
+ ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
+ ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
 
-# Removing old versions
-echo -e "${Y}[*] Cleaning old bin files...${W}"
-rm -rf $PREFIX/bin/as-recon /usr/local/bin/as-recon
+         AS-RECON v19.0  •  Amass-Level Subdomain Recon
+         Passive → Hybrid → Graph | Built for Scale
+EOF
+echo -e "${NC}"
 
-# Installing dependencies
-echo -e "${G}[*] Installing requirements (requests, urllib3)...${W}"
-pip install requests urllib3 --quiet
+echo -e "\( {YELLOW}Starting setup for AS-RECON... \){NC}\n"
 
-# Setting up global command
-chmod +x as-recon.py
+# ──────────────────────────────────────────────────────────────────────────────
+# 1. Check Python version
+# ──────────────────────────────────────────────────────────────────────────────
+echo -e "\( {BLUE}➜ Checking Python version... \){NC}"
 
-if [ -d "$PREFIX/bin" ]; then
-    # Termux Setup
-    cp as-recon.py $PREFIX/bin/as-recon
-    chmod +x $PREFIX/bin/as-recon
-    echo -e "${G}[✓] Global command 'as-recon' set in Termux!${W}"
-else
-    # Linux Setup
-    sudo cp as-recon.py /usr/local/bin/as-recon
-    sudo chmod +x /usr/local/bin/as-recon
-    echo -e "${G}[✓] Global command 'as-recon' set in Linux!${W}"
+if ! command -v python3 &> /dev/null; then
+    echo -e "\( {RED}✗ Python3 not found. Please install Python 3.8 or higher. \){NC}"
+    exit 1
 fi
 
-hash -r
-echo -e "\n${B}${G}Successfully Updated to v10.2!${W}"
-echo -e "Usage: as-recon -d example.com --live"
+PYTHON_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
+echo "   Python version: $PYTHON_VERSION"
+
+if [[ ! "$PYTHON_VERSION" > "3.7" ]]; then
+    echo -e "${RED}✗ Python 3.8+ required. Current: \( PYTHON_VERSION \){NC}"
+    exit 1
+fi
+
+echo -e "\( {GREEN}✓ Python OK \){NC}\n"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 2. Install system dependencies (if on Debian/Ubuntu)
+# ──────────────────────────────────────────────────────────────────────────────
+if command -v apt-get &> /dev/null; then
+    echo -e "\( {BLUE}➜ Updating system packages and installing prerequisites... \){NC}"
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq \
+        python3-pip \
+        python3-venv \
+        git \
+        curl \
+        build-essential \
+        libssl-dev \
+        libffi-dev \
+        python3-dev 2>/dev/null || true
+    echo -e "\( {GREEN}✓ System dependencies installed \){NC}\n"
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3. Install pipx (recommended for isolated CLI tools)
+# ──────────────────────────────────────────────────────────────────────────────
+echo -e "\( {BLUE}➜ Checking/Installing pipx... \){NC}"
+
+if ! command -v pipx &> /dev/null; then
+    echo "   Installing pipx..."
+    python3 -m pip install --user pipx
+    python3 -m pipx ensurepath
+    # Reload shell to make pipx available immediately
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+
+if ! command -v pipx &> /dev/null; then
+    echo -e "\( {RED}✗ Failed to install/find pipx \){NC}"
+    exit 1
+fi
+
+echo -e "\( {GREEN}✓ pipx ready \){NC}\n"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. Install Poetry via pipx (best practice)
+# ──────────────────────────────────────────────────────────────────────────────
+echo -e "\( {BLUE}➜ Installing/Updating Poetry... \){NC}"
+
+pipx install poetry --force || pipx upgrade poetry
+
+if ! command -v poetry &> /dev/null; then
+    echo -e "\( {RED}✗ Poetry installation failed \){NC}"
+    exit 1
+fi
+
+echo -e "\( {GREEN}✓ Poetry installed/updated \){NC}\n"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 5. Install project dependencies with Poetry
+# ──────────────────────────────────────────────────────────────────────────────
+echo -e "\( {BLUE}➜ Installing project dependencies... \){NC}"
+
+poetry install --no-root --sync
+
+echo -e "\( {GREEN}✓ Dependencies installed \){NC}\n"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 6. Install the tool globally via pipx (editable mode recommended)
+#    so 'as-recon' command works everywhere
+# ──────────────────────────────────────────────────────────────────────────────
+echo -e "\( {BLUE}➜ Installing AS-RECON as global command... \){NC}"
+
+# --force to update if already installed
+pipx install --force .
+
+echo -e "\( {GREEN}✓ AS-RECON installed globally \){NC}\n"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 7. Final instructions
+# ──────────────────────────────────────────────────────────────────────────────
+echo -e "\( {GREEN}╔════════════════════════════════════════════════════════════╗ \){NC}"
+echo -e "\( {GREEN}║                  SETUP COMPLETE!                           ║ \){NC}"
+echo -e "\( {GREEN}╚════════════════════════════════════════════════════════════╝ \){NC}\n"
+
+echo -e "You can now run the tool with:"
+echo -e "   \( {YELLOW}as-recon example.com \){NC}"
+echo -e "   \( {YELLOW}as-recon example.com --threads 100 --rate 50 --depth 4 \){NC}\n"
+
+echo -e "Other useful commands:"
+echo -e "   \( {BLUE}poetry run python your_script.py \){NC}     → run without global install"
+echo -e "   \( {BLUE}poetry shell \){NC}                         → enter virtual environment"
+echo -e "   \( {BLUE}poetry add aiohttp@latest \){NC}            → add new dependency"
+echo -e "   \( {BLUE}as-recon --help \){NC}                      → see all options\n"
+
+echo -e "\( {YELLOW}Note: If 'as-recon' command not found after setup: \){NC}"
+echo -e "   → Close and reopen your terminal"
+echo -e "   → or run: source \~/.bashrc   (or source \~/.zshrc)\n"
+
+echo -e "\( {GREEN}Happy recon! \){NC} 🔍"
