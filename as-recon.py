@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-AS-RECON v23.2 - Full 50+ Sources + All Fixes (Subfinder Level - 2026)
-Direct run: asrecon google.com --live
+AS-RECON v23.3 - Full 50+ Sources + All Fixes Solved (2026)
 """
 
 import asyncio
@@ -29,7 +28,7 @@ LOGO = f"""
 ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
 ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
 {W}
-    {Y}AS-RECON v23.2 - Full 50+ Sources + Stable{W}
+    {Y}AS-RECON v23.3 - Full 50+ Sources + Stable & Powerful{W}
 """
 
 SOURCE_SCORE = {
@@ -129,9 +128,9 @@ class ReconEngine:
             await self.queue.put((-prio - score_boost, random.random(), clean))
 
     async def resolve(self, name):
-        await asyncio.sleep(random.uniform(0.1, 0.5))  # avoid DNS rate limit
+        await asyncio.sleep(random.uniform(0.2, 0.6))  # avoid DNS rate limit
         try:
-            res = await asyncio.wait_for(self.resolver.query_dns(name, 'A'), timeout=2.0)
+            res = await asyncio.wait_for(self.resolver.query_dns(name, 'A'), timeout=2.5)
             return [r.host for r in res if hasattr(r, 'host') and r.host]
         except:
             return []
@@ -170,9 +169,9 @@ class ReconEngine:
 
         for attempt in range(6):
             try:
-                async with self.session.get(url, headers=headers, timeout=12, ssl=False) as resp:
+                async with self.session.get(url, headers=headers, timeout=15, ssl=False) as resp:
                     if resp.status in [429, 503]:
-                        wait = 8 * (attempt + 1) + random.uniform(0, 5)
+                        wait = 10 * (attempt + 1) + random.uniform(0, 5)
                         print(f"{Y}{src['name']} rate limit ({resp.status}), waiting {wait:.1f}s...{W}")
                         await asyncio.sleep(wait)
                         continue
@@ -214,7 +213,7 @@ class ReconEngine:
                     return subs
             except Exception as e:
                 print(f"{R}{src['name']} failed (attempt {attempt+1}): {str(e)[:60]}{W}")
-                await asyncio.sleep(3 ** attempt + random.uniform(0, 3))
+                await asyncio.sleep(4 ** attempt + random.uniform(0, 4))
 
         return set()
 
@@ -227,7 +226,7 @@ class ReconEngine:
                 all_subs.update(res)
         print(f"\n{G}Passive sources collected {len(all_subs)} unique subdomains{W}")
         if self.skipped > 0:
-            print(f"{Y}Skipped {self.skipped} sources (missing API keys){W}")
+            print(f"{Y}Skipped {self.skipped} sources due to missing API keys{W}")
         for sub in sorted(all_subs, key=lambda x: x.count('.')):
             prio = 25 if any(k in sub for k in ['api','dev','test','prod']) else 12
             await self.add_to_queue(sub, prio)
