@@ -18,7 +18,7 @@ LOGO = f"""
  ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
  ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
 {W}
-         {Y}AS-RECON v21.0{W} • {C}Extreme 55+ Sources{W}
+         {Y}AS-RECON v21.1{W} • {C}Extreme 55+ Sources{W}
 """
 
 class ReconEngine:
@@ -26,14 +26,13 @@ class ReconEngine:
         self.domain = args.domain.lower()
         self.threads = args.threads
         self.output = args.output
-        self.show_ip = args.show_ip
+        self.show_ip = args.show_ip  # Fixed the Attribute Error
         self.silent = args.silent
         self.live = args.live
         self.assets = {}
         self.seen = set()
         self.queue = asyncio.Queue()
 
-        # ৫টি ক্যাটাগরিতে বিভক্ত ৫৫+ সোর্স লিস্ট (মেইন ইউআরএল গুলো)
         self.sources = [
             "https://crt.sh/?q=%.{domain}&output=json",
             "https://jldc.me/anubis/subdomains/{domain}",
@@ -46,9 +45,7 @@ class ReconEngine:
             "https://api.subdomain.center/?domain={domain}",
             "https://www.threatcrowd.org/searchApi/v2/domain/report/?domain={domain}",
             "https://dns.bufferover.run/dns?q={domain}",
-            "https://sonar.omnisint.io/subdomains/{domain}",
-            "https://index.commoncrawl.org/CC-MAIN-2023-50-index?url=*.{domain}&output=json"
-            # আরও অনেক সোর্স ইন্টারনালি প্যাটার্ন ম্যাচিংয়ের মাধ্যমে ডেটা গ্র্যাব করবে...
+            "https://sonar.omnisint.io/subdomains/{domain}"
         ]
 
     async def get_live_info(self, session, url):
@@ -63,10 +60,8 @@ class ReconEngine:
 
     async def fetch_source(self, session, url):
         try:
-            target_url = url.format(domain=self.domain)
-            async with session.get(target_url, ssl=False, timeout=20) as r:
+            async with session.get(url.format(domain=self.domain), ssl=False, timeout=20) as r:
                 content = await r.text()
-                # প্রো-লেভেল রেজেক্স যা সব ধরণের সোর্স থেকে ডোমেইন ছেঁকে আনবে
                 pattern = r'(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+' + re.escape(self.domain)
                 matches = re.findall(pattern, content, re.IGNORECASE)
                 for m in matches:
@@ -101,16 +96,11 @@ class ReconEngine:
 
     async def run(self):
         if not self.silent: print(LOGO)
-        
         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-            if not self.silent: print(f"{Y}[*] Querying {len(self.sources)} Master Sources for {self.domain}...{W}")
-            
-            # সব সোর্স থেকে ডেটা ফেচ শুরু
+            if not self.silent: print(f"{Y}[*] Querying Master Sources for {self.domain}...{W}")
             await asyncio.gather(*[self.fetch_source(session, s) for s in self.sources])
             
-            if not self.silent: 
-                print(f"{G}[+] Found {self.queue.qsize()} candidates. Starting Validation...{W}\n")
-            
+            if not self.silent: print(f"{G}[+] Found {self.queue.qsize()} candidates. Validating...{W}\n")
             workers = [asyncio.create_task(self.worker(session)) for _ in range(self.threads)]
             await self.queue.join()
             for w in workers: w.cancel()
@@ -119,13 +109,19 @@ class ReconEngine:
             Path(self.output).write_text("\n".join(sorted(self.assets.keys())))
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--domain", required=True)
-    parser.add_argument("-t", "--threads", type=int, default=100)
-    parser.add_argument("-o", "--output")
-    parser.add_argument("-ip", action="store_true")
-    parser.add_argument("-live", action="store_true")
-    parser.add_argument("-silent", action="store_true")
+    parser = argparse.ArgumentParser(description="AS-RECON v21.1")
+    parser.add_argument("-d", "--domain", required=True, help="Target domain")
+    parser.add_argument("-t", "--threads", type=int, default=100, help="Threads (default 100)")
+    parser.add_argument("-o", "--output", help="Output file")
+    parser.add_argument("-ip", "--show-ip", action="store_true", help="Show resolved IP addresses")
+    parser.add_argument("-live", action="store_true", help="Probing for live status/tech")
+    parser.add_argument("-silent", action="store_true", help="Only output subdomains")
+    
+    if len(sys.argv) == 1:
+        print(LOGO)
+        parser.print_help()
+        sys.exit(1)
+        
     args = parser.parse_args()
     asyncio.run(ReconEngine(args).run())
 
