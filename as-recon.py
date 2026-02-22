@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AS-RECON v21.1 - Fixed Deprecation, Rate Limit & Output (2026)
+AS-RECON v21.3 - All 50+ Sources from v20.3 + Fixed for direct run (asrecon google.com)
 """
 
 import asyncio
@@ -12,6 +12,7 @@ import re
 import aiodns
 import ssl
 import time
+from pathlib import Path
 
 C = '\033[96m'
 G = '\033[92m'
@@ -27,16 +28,57 @@ LOGO = f"""
 ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
 ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
 {W}
-    {Y}AS-RECON v21.1 - Stable & Visible Output{W}
+    {Y}AS-RECON v21.3 - Direct Run Ready (asrecon google.com){W}
 """
 
+SOURCE_SCORE = {
+    "crtsh": 0.95,
+    "chaos": 0.92,
+    "censys": 0.90,
+    "securitytrails": 0.88,
+    "virustotal": 0.85,
+    "alienvault_otx": 0.80,
+    "sonar_omnisint": 0.78,
+    "anubisdb": 0.75,
+    "columbus": 0.72,
+    "threatcrowd": 0.70,
+    "circl_lu": 0.68,
+    "bufferover": 0.65,
+    "urlscan": 0.62,
+    # default: 0.5
+}
+
 PASSIVE_SOURCES = [
-    {"name": "crtsh", "url": "https://crt.sh/?q=%.{domain}&output=json"},
-    {"name": "anubis", "url": "https://jldc.me/anubis/subdomains/{domain}"},
-    # alienvault 429 এড়াতে বাদ দেওয়া হয়েছে (চাইলে delay দিয়ে যোগ করা যাবে)
+    {"name": "crtsh", "url": "https://crt.sh/?q=%.{domain}&output=json", "needs_key": False},
+    {"name": "censys", "url": "https://search.censys.io/api/v2/certificates/search?q=parsed.names%3A*.{domain}", "needs_key": True},
+    {"name": "chaos", "url": "https://chaos.projectdiscovery.io/assets/{domain}.json", "needs_key": True},
+    {"name": "securitytrails", "url": "https://api.securitytrails.com/v1/domain/{domain}/subdomains", "needs_key": True},
+    {"name": "virustotal", "url": "https://www.virustotal.com/api/v3/domains/{domain}/subdomains", "needs_key": True},
+    {"name": "alienvault_otx", "url": "https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns", "needs_key": False},
+    {"name": "sonar_omnisint", "url": "https://sonar.omnisint.io/subdomains/{domain}", "needs_key": False},
+    {"name": "anubisdb", "url": "https://jldc.me/anubis/subdomains/{domain}", "needs_key": False},
+    {"name": "columbus", "url": "https://columbus.elmasy.com/api/lookup/{domain}", "needs_key": False},
+    {"name": "threatcrowd", "url": "https://www.threatcrowd.org/searchApi/v2/domain/report/?domain={domain}", "needs_key": False},
+    {"name": "circl_lu", "url": "https://www.circl.lu/pdns/query/{domain}", "needs_key": False},
+    {"name": "dnsrepo", "url": "https://dnsrepo.noc.org/api/?search={domain}", "needs_key": False},
+    {"name": "passivedns_rapidapi", "url": "https://passivedns.p.rapidapi.com/v1/query?domain={domain}", "needs_key": True},
+    {"name": "mnemonic", "url": "https://api.mnemonic.no/pdns/v3/search?query={domain}", "needs_key": True},
+    {"name": "threatbook", "url": "https://api.threatbook.cn/v3/domain/report?apikey=KEY&domain={domain}", "needs_key": True},
+    {"name": "spyse", "url": "https://api.spyse.com/v3/data/domain/search?query=domain:{domain}", "needs_key": True},
+    {"name": "criminalip", "url": "https://api.criminalip.io/v1/domain/lite/report/{domain}", "needs_key": True},
+    {"name": "onyphe", "url": "https://api.onyphe.io/v2/search?query=domain:{domain}", "needs_key": True},
+    {"name": "hunterhow", "url": "https://api.hunter.how/search?query=domain=\"{domain}\"", "needs_key": True},
+    {"name": "pulsedive", "url": "https://pulsedive.com/api/explore.php?q=domain:{domain}", "needs_key": True},
+    {"name": "otx_subs", "url": "https://otx.alienvault.com/api/v1/indicators/domain/{domain}/url_list", "needs_key": False},
+    {"name": "gitlab_search", "url": "https://gitlab.com/api/v4/search?scope=blobs&search={domain}", "needs_key": False},
+    {"name": "bitbucket_search", "url": "https://api.bitbucket.org/2.0/search/code?q={domain}", "needs_key": False},
+    {"name": "publicwww", "url": "https://publicwww.com/websites/{domain}/", "needs_key": True},
+    {"name": "searchcode", "url": "https://searchcode.com/api/codesearch_I/?q={domain}", "needs_key": False},
+    {"name": "certdb", "url": "https://certdb.com/api/v1/certs?domain={domain}", "needs_key": False},
+    {"name": "sectigo_ct", "url": "https://sectigo.com/api/ct/search?domain={domain}", "needs_key": False},
 ]
 
-PERMUTATIONS = ["dev", "test", "api", "app", "stage", "prod", "admin"]
+PERMUTATIONS = ["dev", "staging", "test", "beta", "api", "app", "portal", "admin", "internal", "prod", "old", "new"]
 
 TECH_PATTERNS = {
     "Apache": b"apache",
@@ -46,12 +88,13 @@ TECH_PATTERNS = {
 }
 
 class ReconEngine:
-    def __init__(self, domain, threads=15, rate=8, depth=4, live=False):
+    def __init__(self, domain, threads=15, rate=8, depth=4, live=False, api_keys_path=None):
         self.domain = domain.lower()
         self.threads = threads
         self.rate = rate
         self.depth = depth
         self.live = live
+        self.api_keys = self.load_api_keys(api_keys_path)
         self.assets = {}
         self.seen = set()
         self.queue = asyncio.PriorityQueue()
@@ -59,28 +102,50 @@ class ReconEngine:
         self.session = None
         self.resolver = aiodns.DNSResolver()
 
+    def load_api_keys(self, path):
+        if not path or not Path(path).exists():
+            return {}
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"{R}API keys load failed: {str(e)}{W}")
+            return {}
+
     async def add_to_queue(self, sub, prio=10):
         clean = sub.lower().strip()
         if clean not in self.seen and clean.endswith(self.domain) and clean != self.domain:
             self.seen.add(clean)
-            await self.queue.put((-prio, random.random(), clean))
+            source_name = clean.split('.')[0] if '.' in clean else clean
+            score_boost = SOURCE_SCORE.get(source_name, 0.5) * 10
+            await self.queue.put((-prio - score_boost, random.random(), clean))
 
     async def resolve(self, name):
         try:
-            # Deprecation fix: query() → query_dns()
             res = await asyncio.wait_for(self.resolver.query_dns(name, 'A'), timeout=3.0)
             return [r.host for r in res if hasattr(r, 'host') and r.host]
-        except Exception:
+        except:
             return []
 
     async def fetch_source(self, src):
+        if src["needs_key"] and src["name"] not in self.api_keys:
+            print(f"{Y}Skipping {src['name']}: API key missing{W}")
+            return set()
+
         url = src["url"].format(domain=self.domain)
-        for attempt in range(3):  # retry 3 times
+        headers = {}
+        if src["needs_key"]:
+            key = self.api_keys.get(src["name"], "")
+            headers['X-API-Key'] = key
+            headers['apikey'] = key
+            headers['Authorization'] = f"Bearer {key}"
+
+        for attempt in range(3):
             try:
-                async with self.session.get(url, timeout=15, ssl=False) as resp:
+                async with self.session.get(url, headers=headers, timeout=15, ssl=False) as resp:
                     if resp.status != 200:
                         print(f"{Y}{src['name']} → {resp.status} (attempt {attempt+1}){W}")
-                        await asyncio.sleep(2 ** attempt)  # exponential backoff
+                        await asyncio.sleep(2 ** attempt)
                         continue
 
                     text = await resp.text()
@@ -90,28 +155,48 @@ class ReconEngine:
                         try:
                             data = json.loads(text)
                             for entry in data:
-                                nv = entry.get("name_value", "")
-                                if nv:
-                                    for line in nv.splitlines():
-                                        clean = line.strip().lower().lstrip("*.")
-                                        if clean and clean.endswith(self.domain) and clean != self.domain:
-                                            subs.add(clean)
+                                names = entry.get("name_value", "").splitlines()
+                                for n in names:
+                                    n = n.strip().lower().lstrip("*.")
+                                    if n.endswith(self.domain) and n != self.domain:
+                                        subs.add(n)
                         except:
                             pass
 
-                    elif src["name"] == "anubis":
+                    elif src["name"] in ["chaos", "sonar_omnisint", "anubisdb"]:
                         try:
                             data = json.loads(text)
                             if isinstance(data, list):
-                                for item in data:
-                                    if isinstance(item, str):
-                                        clean = item.lower().rstrip(".").lstrip("*.")
-                                        if clean.endswith(self.domain) and clean != self.domain:
-                                            subs.add(clean)
+                                subs = {s.lower().lstrip("*.").rstrip(".") for s in data 
+                                        if isinstance(s, str) and s.lower().endswith(self.domain)}
                         except:
                             pass
 
-                    print(f"{G}{src['name']}: {len(subs)} subs found{W}")
+                    elif src["name"] == "circl_lu":
+                        try:
+                            data = json.loads(text)
+                            for entry in data:
+                                rrname = entry.get("rrname", "").rstrip(".")
+                                if rrname.lower().endswith(self.domain):
+                                    subs.add(rrname.lower())
+                        except:
+                            pass
+
+                    elif src["name"] == "columbus":
+                        try:
+                            data = json.loads(text)
+                            subs = {e.get("hostname", "").lower().lstrip("*.").rstrip(".") 
+                                    for e in data if e.get("hostname", "").lower().endswith(self.domain)}
+                        except:
+                            pass
+
+                    else:
+                        pattern = r'\b(?:[a-zA-Z0-9_-]{1,63}\.)+' + re.escape(self.domain) + r'\b'
+                        matches = re.findall(pattern, text, re.IGNORECASE)
+                        subs = {m.lower().lstrip("*.").rstrip(".") for m in matches 
+                                if m.lower().endswith(self.domain) and m.lower() != self.domain}
+
+                    print(f"{G}{src['name']}: {len(subs)} subs{W}")
                     return subs
             except Exception as e:
                 print(f"{R}{src['name']} failed (attempt {attempt+1}): {str(e)[:60]}{W}")
@@ -226,18 +311,19 @@ class ReconEngine:
                     f.write(sub + "\n")
             print(f"\n{G}Finished! {len(self.assets)} subdomains saved → {filename}{W}")
         else:
-            print(f"\n{Y}No valid subdomains resolved. Check network or try later.{W}")
+            print(f"\n{Y}No valid subdomains resolved. Try with --live or check API keys.{W}")
 
 def main():
-    parser = argparse.ArgumentParser(description="AS-RECON v21.1 - asrecon <domain>")
-    parser.add_argument("domain", help="Target domain")
+    parser = argparse.ArgumentParser(description="AS-RECON v21.3 - Run directly: asrecon <domain>")
+    parser.add_argument("domain", help="Target domain (example: google.com)")
     parser.add_argument("--threads", type=int, default=15)
     parser.add_argument("--rate", type=int, default=8)
     parser.add_argument("--depth", type=int, default=4)
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--api-keys", type=str, help="Path to API keys JSON file")
     args = parser.parse_args()
 
-    engine = ReconEngine(args.domain, args.threads, args.rate, args.depth, args.live)
+    engine = ReconEngine(args.domain, args.threads, args.rate, args.depth, args.live, args.api_keys)
     asyncio.run(engine.run())
 
 if __name__ == "__main__":
