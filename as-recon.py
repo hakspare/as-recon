@@ -64,28 +64,13 @@ PASSIVE_SOURCES = [
     {"name": "threatcrowd", "url": "https://www.threatcrowd.org/searchApi/v2/domain/report/?domain={domain}", "needs_key": False},
     {"name": "circl_lu", "url": "https://www.circl.lu/pdns/query/{domain}", "needs_key": False},
     {"name": "dnsrepo", "url": "https://dnsrepo.noc.org/api/?search={domain}", "needs_key": False},
-    {"name": "passivedns_rapidapi", "url": "https://passivedns.p.rapidapi.com/v1/query?domain={domain}", "needs_key": True},
-    {"name": "mnemonic", "url": "https://api.mnemonic.no/pdns/v3/search?query={domain}", "needs_key": True},
-    {"name": "threatbook", "url": "https://api.threatbook.cn/v3/domain/report?apikey=KEY&domain={domain}", "needs_key": True},
-    {"name": "spyse", "url": "https://api.spyse.com/v3/data/domain/search?query=domain:{domain}", "needs_key": True},
-    {"name": "criminalip", "url": "https://api.criminalip.io/v1/domain/lite/report/{domain}", "needs_key": True},
-    {"name": "onyphe", "url": "https://api.onyphe.io/v2/search?query=domain:{domain}", "needs_key": True},
-    {"name": "hunterhow", "url": "https://api.hunter.how/search?query=domain=\"{domain}\"", "needs_key": True},
-    {"name": "pulsedive", "url": "https://pulsedive.com/api/explore.php?q=domain:{domain}", "needs_key": True},
-    {"name": "otx_subs", "url": "https://otx.alienvault.com/api/v1/indicators/domain/{domain}/url_list", "needs_key": False},
-    {"name": "gitlab_search", "url": "https://gitlab.com/api/v4/search?scope=blobs&search={domain}", "needs_key": False},
-    {"name": "bitbucket_search", "url": "https://api.bitbucket.org/2.0/search/code?q={domain}", "needs_key": False},
-    {"name": "publicwww", "url": "https://publicwww.com/websites/{domain}/", "needs_key": True},
-    {"name": "searchcode", "url": "https://searchcode.com/api/codesearch_I/?q={domain}", "needs_key": False},
-    {"name": "certdb", "url": "https://certdb.com/api/v1/certs?domain={domain}", "needs_key": False},
-    {"name": "sectigo_ct", "url": "https://sectigo.com/api/ct/search?domain={domain}", "needs_key": False},
-    # ... আরও যোগ করতে পারো (bufferover, urlscan, threatminer ইত্যাদি)
+    # আরো যোগ করতে পারো ...
 ]
 
 PERMUTATIONS = ["dev", "staging", "test", "beta", "api", "app", "portal", "admin", "internal", "prod", "old", "new"]
 
 class ReconEngine:
-    def _init_(self, domain, threads=250, rate=120, depth=5, api_keys_path=None):
+    def __init__(self, domain, threads=250, rate=120, depth=5, api_keys_path=None):
         self.domain = domain.lower()
         self.threads = threads
         self.rate = rate
@@ -132,7 +117,7 @@ class ReconEngine:
         if item not in self.seen and item.endswith(self.domain):
             self.seen.add(item)
             # Source score boost for priority
-            score = SOURCE_SCORE.get(item, 0.5) * 10
+            score = SOURCE_SCORE.get(item.split('.')[0], 0.5) * 10   # improved key
             await self.queue.put((-priority - score, random.random(), item))
 
     async def query_smart(self, name, rtype='A'):
@@ -146,10 +131,10 @@ class ReconEngine:
                 res = await asyncio.wait_for(self.resolver.query(name, rtype), timeout=5)
                 lat = time.time() - start
                 h = self.resolver_health[pool[0]]
-                h['success'] = h['success'] * 0.9 + 0.1
-                h['latency'] = h['latency'] * 0.9 + lat
+                h['success'] = h['success'] * 0.9 + 0.1 * 1
+                h['latency'] = h['latency'] * 0.9 + lat * 0.1
                 return [r.host for r in res]
-            except:
+            except Exception:
                 self.resolver_health[pool[0]]['success'] *= 0.7
         return []
 
@@ -160,9 +145,9 @@ class ReconEngine:
             ips = await self.query_smart(r)
             if ips:
                 sets.append(set(ips))
-        if len(sets) >= 4 and len(set.intersection(*sets[:4])) >= 2:
+        if len(sets) >= 4 and len(set.intersection(*sets)) >= len(sets) // 2:
             self.wildcard_ips = set.intersection(*sets)
-            print(f"{Y}[!] Wildcard IPs: {self.wildcard_ips}{W}")
+            print(f"{Y}[!] Wildcard IPs detected: {self.wildcard_ips}{W}")
         else:
             print(f"{G}[+] No wildcard detected{W}")
 
@@ -174,8 +159,12 @@ class ReconEngine:
         url = src["url"].format(domain=self.domain)
         headers = {}
         if src["needs_key"]:
-            headers['X-API-Key'] = self.api_keys.get(src["name"], "")
-            headers['Authorization'] = f"Bearer {self.api_keys.get(src['name'], '')}"
+            key = self.api_keys.get(src["name"], "")
+            if "Authorization" in src.get("auth_type", ""):
+                headers['Authorization'] = f"Bearer {key}"
+            else:
+                headers['X-API-Key'] = key
+                headers['apikey'] = key  # some APIs use lowercase
 
         try:
             async with self.session.get(url, headers=headers, timeout=20) as r:
@@ -185,16 +174,19 @@ class ReconEngine:
 
                 content_type = r.headers.get('content-type', '').lower()
                 if 'json' in content_type:
-                    data = await r.json(content_type=None)
+                    try:
+                        data = await r.json(content_type=None)
+                    except:
+                        data = await r.text()
                 else:
                     data = await r.text()
 
                 subs = set()
 
-                # Source-specific parsing
+                # Source-specific parsing (basic version)
                 if src["name"] == "crtsh" and isinstance(data, list):
                     for entry in data:
-                        names = entry.get("name_value", "").splitlines()
+                        names = entry.get("name_value", "").split("\n")
                         for n in names:
                             n = n.strip().lower().lstrip("*.")
                             if n.endswith(self.domain) and n != self.domain:
@@ -202,32 +194,23 @@ class ReconEngine:
 
                 elif src["name"] in ["chaos", "sonar_omnisint", "anubisdb"]:
                     if isinstance(data, list):
-                        subs = {s.lower().lstrip("*.").rstrip(".") for s in data 
-                                if isinstance(s, str) and s.lower().endswith(self.domain)}
+                        for s in data:
+                            if isinstance(s, str):
+                                s = s.lower().lstrip("*.").rstrip(".")
+                                if s.endswith(self.domain) and s != self.domain:
+                                    subs.add(s)
 
-                elif src["name"] == "circl_lu" and isinstance(data, list):
-                    for entry in data:
-                        rrname = entry.get("rrname", "").rstrip(".")
-                        if rrname.lower().endswith(self.domain):
-                            subs.add(rrname.lower())
-
-                elif src["name"] == "threatcrowd" and isinstance(data, dict):
-                    subs = {s.lower() for s in data.get("subdomains", []) 
-                            if s.lower().endswith(self.domain)}
-
-                elif src["name"] == "columbus" and isinstance(data, list):
-                    subs = {e.get("hostname", "").lower().lstrip("*.").rstrip(".") 
-                            for e in data if e.get("hostname", "").lower().endswith(self.domain)}
-
+                # fallback generic parsing
                 else:
-                    # Generic fallback
                     text = json.dumps(data) if isinstance(data, (dict, list)) else str(data)
-                    pattern = r'\b(?:[a-zA-Z0-9_-]{1,63}\.)+' + re.escape(self.domain) + r'\b'
+                    pattern = r'(?:(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+)' + re.escape(self.domain)
                     matches = re.findall(pattern, text, re.IGNORECASE)
-                    subs = {m.lower().lstrip("*.").rstrip(".") for m in matches 
-                            if m.lower().endswith(self.domain) and m.lower() != self.domain}
+                    for m in matches:
+                        clean = m.lower().rstrip(".").lstrip("*.")
+                        if clean.endswith(self.domain) and clean != self.domain:
+                            subs.add(clean)
 
-                print(f"{G}{src['name']}: {len(subs)} subs{W}")
+                print(f"{G}{src['name']}: {len(subs)} subs found{W}")
                 return subs
 
         except Exception as e:
@@ -241,8 +224,9 @@ class ReconEngine:
         for res in results:
             if isinstance(res, set):
                 all_subs.update(res)
+        print(f"{G}[+] Total unique subs from passive sources: {len(all_subs)}{W}")
         for sub in sorted(all_subs, key=lambda x: x.count('.')):
-            prio = 25 if any(k in sub for k in ['api','dev','prod']) else 15
+            prio = 25 if any(k in sub for k in ['api','dev','prod','stage','test']) else 15
             await self.add_to_queue(sub, prio)
 
     async def worker(self):
@@ -252,14 +236,17 @@ class ReconEngine:
                 prio = -neg_prio
 
                 if sub in self.scanned:
+                    self.queue.task_done()
                     continue
                 self.scanned.add(sub)
 
                 async with self.semaphore:
                     ips = await self.query_smart(sub)
                 if not ips:
+                    self.queue.task_done()
                     continue
                 if self.wildcard_ips & set(ips):
+                    self.queue.task_done()
                     continue
 
                 self.assets[sub] = {"ips": ips}
@@ -277,11 +264,14 @@ class ReconEngine:
                     self.save_checkpoint()
                     gc.collect()
 
+                self.queue.task_done()
+
             except asyncio.TimeoutError:
                 if self.queue.empty():
                     break
             except Exception as e:
                 print(f"{R}Worker error: {e}{W}")
+                self.queue.task_done()
                 break
 
     def save_checkpoint(self):
@@ -291,12 +281,14 @@ class ReconEngine:
             c.execute("INSERT OR REPLACE INTO results VALUES (?, ?, ?)", 
                       (sub, json.dumps(data), now))
         self.db.commit()
+        print(f"{Y}[Checkpoint saved] {len(self.assets)} assets{W}")
 
     def load_checkpoint(self):
         c = self.db.cursor()
         try:
             c.execute("SELECT sub, data FROM results")
-            for sub, data_str in c.fetchall():
+            rows = c.fetchall()
+            for sub, data_str in rows:
                 self.assets[sub] = json.loads(data_str)
                 self.seen.add(sub)
                 self.scanned.add(sub)
@@ -316,21 +308,29 @@ class ReconEngine:
         self.save_checkpoint()
         await self.session.close()
 
-        print(f"{G}[+] Done! {len(self.assets)} subs found{W}")
+        print(f"\n{G}[+] Scan completed! Found {len(self.assets)} valid subdomains{W}")
         Path(f"subs_{self.domain}.txt").write_text("\n".join(sorted(self.assets.keys())))
         nx.write_graphml(self.graph, f"graph_{self.domain}.graphml")
+        print(f"{G}→ Results saved to: subs_{self.domain}.txt{W}")
+        print(f"{G}→ Graph saved to: graph_{self.domain}.graphml{W}")
 
 def main():
-    parser = argparse.ArgumentParser(description="AS-RECON v20.3")
-    parser.add_argument("domain")
-    parser.add_argument("--threads", type=int, default=250)
-    parser.add_argument("--rate", type=int, default=120)
-    parser.add_argument("--depth", type=int, default=5)
-    parser.add_argument("--api-keys", type=str)
+    parser = argparse.ArgumentParser(description="AS-RECON v20.3 - Subdomain Enumeration Tool")
+    parser.add_argument("domain", help="Target domain (example: example.com)")
+    parser.add_argument("--threads", type=int, default=250, help="Number of concurrent workers")
+    parser.add_argument("--rate", type=int, default=120, help="Max requests per second")
+    parser.add_argument("--depth", type=int, default=5, help="Permutation depth")
+    parser.add_argument("--api-keys", type=str, help="Path to JSON file with API keys")
     args = parser.parse_args()
 
-    engine = ReconEngine(args.domain, args.threads, args.rate, args.depth, args.api_keys)
+    engine = ReconEngine(
+        domain=args.domain,
+        threads=args.threads,
+        rate=args.rate,
+        depth=args.depth,
+        api_keys_path=args.api_keys
+    )
     asyncio.run(engine.run())
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()
