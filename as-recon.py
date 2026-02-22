@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AS-RECON v21.4 - Final Stable Version (Direct Run Ready - 2026)
+AS-RECON v21.5 - Final Fixed Version (Direct Run + Clean Output)
 """
 
 import asyncio
@@ -13,6 +13,7 @@ import aiodns
 import ssl
 import time
 from pathlib import Path
+from datetime import datetime
 
 C = '\033[96m'
 G = '\033[92m'
@@ -28,17 +29,13 @@ LOGO = f"""
 ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
 ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
 {W}
-    {Y}AS-RECON v21.4 - Direct Run: asrecon google.com{W}
+    {Y}AS-RECON v21.5 - Direct Run Ready (asrecon google.com){W}
 """
 
-# শুধু এখনো কাজ করা ফ্রি সোর্স রাখা হয়েছে (error কম হবে)
+# শুধু reliable ফ্রি সোর্স (rate limit কম)
 PASSIVE_SOURCES = [
     {"name": "crtsh", "url": "https://crt.sh/?q=%.{domain}&output=json", "needs_key": False},
     {"name": "anubisdb", "url": "https://jldc.me/anubis/subdomains/{domain}", "needs_key": False},
-    {"name": "alienvault_otx", "url": "https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns", "needs_key": False},
-    # চাইলে পরে API key দিয়ে এগুলো enable করতে পারো
-    # {"name": "chaos", "url": "https://chaos.projectdiscovery.io/assets/{domain}.json", "needs_key": True},
-    # {"name": "virustotal", "url": "https://www.virustotal.com/api/v3/domains/{domain}/subdomains", "needs_key": True},
 ]
 
 PERMUTATIONS = ["dev", "test", "api", "app", "stage", "prod", "admin", "beta"]
@@ -51,29 +48,19 @@ TECH_PATTERNS = {
 }
 
 class ReconEngine:
-    def __init__(self, domain, threads=12, rate=6, depth=4, live=False, api_keys_path=None):
+    def __init__(self, domain, threads=10, rate=5, depth=4, live=False):
         self.domain = domain.lower()
         self.threads = threads
         self.rate = rate
         self.depth = depth
         self.live = live
-        self.api_keys = self.load_api_keys(api_keys_path)
         self.assets = {}
         self.seen = set()
         self.queue = asyncio.PriorityQueue()
         self.semaphore = asyncio.Semaphore(self.rate)
         self.session = None
         self.resolver = aiodns.DNSResolver()
-
-    def load_api_keys(self, path):
-        if not path or not Path(path).exists():
-            return {}
-        try:
-            with open(path) as f:
-                return json.load(f)
-        except:
-            print(f"{R}API keys load failed{W}")
-            return {}
+        self.wildcard_ips = set()
 
     async def add_to_queue(self, sub, prio=10):
         clean = sub.lower().strip()
@@ -83,29 +70,33 @@ class ReconEngine:
 
     async def resolve(self, name):
         try:
-            res = await asyncio.wait_for(self.resolver.query_dns(name, 'A'), timeout=3.0)
+            res = await asyncio.wait_for(self.resolver.query_dns(name, 'A'), timeout=2.5)
             return [r.host for r in res if hasattr(r, 'host') and r.host]
         except:
             return []
 
+    async def detect_wildcard(self):
+        print(f"{Y}[*] Detecting wildcard...{W}")
+        randoms = [f"nonexist{random.randint(1000000,9999999)}.{self.domain}" for _ in range(5)]
+        ips_sets = []
+        for r in randoms:
+            ips = await self.resolve(r)
+            if ips:
+                ips_sets.append(set(ips))
+        if len(ips_sets) >= 3 and len(set.intersection(*ips_sets)) >= 2:
+            self.wildcard_ips = set.intersection(*ips_sets)
+            print(f"{Y}[!] Wildcard IPs detected: {self.wildcard_ips}{W}")
+        else:
+            print(f"{G}[+] No wildcard detected{W}")
+
     async def fetch_source(self, src):
         url = src["url"].format(domain=self.domain)
-        headers = {}
-        if src["needs_key"]:
-            key = self.api_keys.get(src["name"], "")
-            if not key:
-                print(f"{Y}Skipping {src['name']}: No API key{W}")
-                return set()
-            headers['X-API-Key'] = key
-            headers['apikey'] = key
-            headers['Authorization'] = f"Bearer {key}"
-
         for attempt in range(3):
             try:
-                async with self.session.get(url, headers=headers, timeout=15, ssl=False) as resp:
+                async with self.session.get(url, timeout=15, ssl=False) as resp:
                     if resp.status != 200:
                         print(f"{Y}{src['name']} → {resp.status} (attempt {attempt+1}){W}")
-                        await asyncio.sleep(2 ** attempt)
+                        await asyncio.sleep(1.5 ** attempt)
                         continue
 
                     text = await resp.text()
@@ -135,21 +126,11 @@ class ReconEngine:
                         except:
                             pass
 
-                    elif src["name"] == "alienvault_otx":
-                        try:
-                            data = json.loads(text)
-                            for rec in data.get("passive_dns", []):
-                                h = rec.get("hostname", "").lower().rstrip(".")
-                                if h.endswith(self.domain) and h != self.domain:
-                                    subs.add(h)
-                        except:
-                            pass
-
                     print(f"{G}{src['name']}: {len(subs)} subs found{W}")
                     return subs
             except Exception as e:
                 print(f"{R}{src['name']} failed (attempt {attempt+1}): {str(e)[:60]}{W}")
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(1.5 ** attempt)
 
         return set()
 
@@ -179,7 +160,7 @@ class ReconEngine:
                     ssl_ctx.check_hostname = False
                     ssl_ctx.verify_mode = ssl.CERT_NONE
 
-                reader, writer = await asyncio.open_connection(sub, port, ssl=ssl_ctx, timeout=3.0)
+                reader, writer = await asyncio.open_connection(sub, port, ssl=ssl_ctx, timeout=2.5)
 
                 if port in [80, 8080]:
                     req = f"GET / HTTP/1.1\r\nHost: {sub}\r\nConnection: close\r\n\r\n".encode()
@@ -207,7 +188,7 @@ class ReconEngine:
     async def worker(self):
         while True:
             try:
-                _, _, sub = await asyncio.wait_for(self.queue.get(), timeout=6.0)
+                _, _, sub = await asyncio.wait_for(self.queue.get(), timeout=5.0)
                 print(f"{Y}Processing: {sub}{W}")
 
                 if sub in self.assets:
@@ -216,6 +197,10 @@ class ReconEngine:
                 ips = await self.resolve(sub)
                 if not ips:
                     print(f"{Y}No IP: {sub}{W}")
+                    continue
+
+                if self.wildcard_ips & set(ips):
+                    print(f"{Y}Wildcard match skipped: {sub}{W}")
                     continue
 
                 print(f"{G}Resolved: {sub} → {', '.join(ips[:2])}{W}")
@@ -246,6 +231,7 @@ class ReconEngine:
         try:
             print(LOGO)
             self.session = aiohttp.ClientSession()
+            await self.detect_wildcard()
             await self.collect_passive()
 
             print(f"\n{Y}Starting {self.threads} workers (rate {self.rate}/sec){W}\n")
@@ -256,7 +242,7 @@ class ReconEngine:
                 w.cancel()
 
         except KeyboardInterrupt:
-            print(f"\n{Y}Scan stopped by user (Ctrl+C). Saving partial results...{W}")
+            print(f"\n{Y}Scan stopped by user. Saving partial results...{W}")
         except Exception as e:
             print(f"{R}Unexpected error: {str(e)}{W}")
         finally:
@@ -269,21 +255,20 @@ class ReconEngine:
                 with open(filename, "w") as f:
                     for sub in sorted(self.assets.keys()):
                         f.write(sub + "\n")
-                print(f"{G}Saved {len(self.assets)} subdomains to {filename}{W}")
+                print(f"{G}Finished! Saved {len(self.assets)} subdomains to {filename}{W}")
             else:
-                print(f"{Y}No subdomains found or saved this time.{W}")
+                print(f"{Y}No valid subdomains found.{W}")
 
 def main():
-    parser = argparse.ArgumentParser(description="AS-RECON v21.4 - Run: asrecon <domain>")
-    parser.add_argument("domain", help="Target domain (example: google.com)")
-    parser.add_argument("--threads", type=int, default=12)
-    parser.add_argument("--rate", type=int, default=6)
+    parser = argparse.ArgumentParser(description="AS-RECON v21.5 - Run: asrecon <domain>")
+    parser.add_argument("domain", help="Target domain")
+    parser.add_argument("--threads", type=int, default=10)
+    parser.add_argument("--rate", type=int, default=5)
     parser.add_argument("--depth", type=int, default=4)
     parser.add_argument("--live", action="store_true")
-    parser.add_argument("--api-keys", type=str, help="Path to API keys JSON")
     args = parser.parse_args()
 
-    engine = ReconEngine(args.domain, args.threads, args.rate, args.depth, args.live, args.api_keys)
+    engine = ReconEngine(args.domain, args.threads, args.rate, args.depth, args.live)
     asyncio.run(engine.run())
 
 if __name__ == "__main__":
