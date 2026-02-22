@@ -1,108 +1,115 @@
 #!/bin/bash
 
-# ═══════════════════════════════════
-# AS-RECON Commercial Installer v21.0
-# Author: Ajijul Islam Shohan (@hakspare)
-# ═══════════════════════════════════
+# =========================================
+# AS-RECON Commercial Installer v21.1
+# =========================================
 
 # Colors
-G='\033[92m'
-Y='\033[93m'
-R='\033[91m'
-B='\033[1m'
-W='\033[0m'
+GREEN='\033[92m'
+YELLOW='\033[93m'
+BOLD='\033[1m'
+RESET='\033[0m'
 
-echo -e "${G}${B}[*] AS-RECON v21.0 Commercial Installer Starting...${W}"
+echo -e "${GREEN}${BOLD}[*] AS-RECON v21.1 Installer Starting...${RESET}"
 
 # Detect OS
-OS=$(uname -s)
-echo -e "${Y}[*] Detected OS: $OS${W}"
+OS="$(uname -s)"
+echo -e "${YELLOW}[*] Detected OS: $OS${RESET}"
 
-# Check Python
+# Ensure Python 3
 if ! command -v python3 &>/dev/null; then
-    echo -e "${R}[✗] Python3 not found! Install Python3 first.${W}"
+    echo "[✗] Python3 not found. Please install Python3."
     exit 1
 fi
 PYTHON_VERSION=$(python3 -V | awk '{print $2}')
-echo -e "${G}[✓] Python OK: $PYTHON_VERSION${W}"
+echo -e "${GREEN}[✓] Python OK: $PYTHON_VERSION${RESET}"
 
-# Check git
+# Ensure git
 if ! command -v git &>/dev/null; then
-    echo -e "${R}[✗] git not found! Install git first.${W}"
+    echo "[✗] git not found. Please install git."
     exit 1
 fi
+echo -e "${GREEN}[✓] git OK${RESET}"
 
-# Check curl
+# Ensure curl
 if ! command -v curl &>/dev/null; then
-    echo -e "${R}[✗] curl not found! Install curl first.${W}"
+    echo "[✗] curl not found. Please install curl."
     exit 1
 fi
+echo -e "${GREEN}[✓] curl OK${RESET}"
 
-# Check jq
+# Ensure jq
 if ! command -v jq &>/dev/null; then
-    echo -e "${R}[✗] jq not found! Install jq first.${W}"
+    echo "[✗] jq not found. Please install jq."
     exit 1
 fi
+echo -e "${GREEN}[✓] jq OK${RESET}"
 
-# Setup directories
-VENV_DIR="$HOME/.as-recon-venv"
-SCRIPT_DIR="$HOME/as-recon"
+# Set bin directory
 BIN_DIR="$HOME/.local/bin"
-
 mkdir -p "$BIN_DIR"
+export PATH="$BIN_DIR:$PATH"
 
-# Create virtual environment if not exists
-if [ ! -d "$VENV_DIR" ]; then
-    echo -e "${Y}[*] Creating virtual environment at $VENV_DIR...${W}"
-    python3 -m venv "$VENV_DIR"
+# Create virtual environment
+VENV="$HOME/.as-recon-venv"
+if [ ! -d "$VENV" ]; then
+    echo -e "${YELLOW}[*] Creating virtual environment at $VENV...${RESET}"
+    python3 -m venv "$VENV"
 fi
 
-# Activate venv and install dependencies
-echo -e "${Y}[*] Installing Python dependencies...${W}"
-source "$VENV_DIR/bin/activate"
-REQ_FILE="$SCRIPT_DIR/requirements.txt"
-if [ -f "$REQ_FILE" ]; then
-    pip install --upgrade pip
-    pip install -r "$REQ_FILE"
+# Activate venv
+source "$VENV/bin/activate"
+
+# Upgrade pip inside venv
+pip install --upgrade pip &>/dev/null
+
+# Install dependencies if requirements.txt exists
+if [ -f "requirements.txt" ]; then
+    echo -e "${YELLOW}[*] Installing Python dependencies...${RESET}"
+    pip install -r requirements.txt
 else
-    echo -e "${Y}[!] requirements.txt not found, skipping dependency install.${W}"
+    echo -e "${YELLOW}[!] requirements.txt not found. Skipping dependency install.${RESET}"
 fi
-deactivate
 
-# Create wrapper script
+# Clone/update repo
+if [ ! -d "$HOME/as-recon" ]; then
+    echo -e "${YELLOW}[*] Cloning AS-RECON repository...${RESET}"
+    git clone https://github.com/hakspare/as-recon.git "$HOME/as-recon"
+else
+    echo -e "${YELLOW}[*] Repository exists. Pulling latest changes...${RESET}"
+    cd "$HOME/as-recon" || exit
+    git pull
+fi
+
+# Create global wrapper command
 WRAPPER="$BIN_DIR/as-recon"
-echo -e "${Y}[*] Creating global command at $WRAPPER...${W}"
-cat > "$WRAPPER" << EOL
+cat > "$WRAPPER" << 'EOL'
 #!/usr/bin/env bash
-# AS-RECON wrapper
+VENV="$HOME/.as-recon-venv"
+SCRIPT="$HOME/as-recon/as-recon.py"
 
-VENV="$VENV_DIR"
-SCRIPT="$SCRIPT_DIR/as-recon.py"
-
-if [ ! -f "\$SCRIPT" ]; then
-    echo "Error: \$SCRIPT not found!"
+if [ ! -f "$SCRIPT" ]; then
+    echo "Error: $SCRIPT not found!"
     exit 1
 fi
 
-source "\$VENV/bin/activate"
-python3 "\$SCRIPT" "\$@"
+# Activate venv
+source "$VENV/bin/activate"
+
+# Help support
+if [[ "$1" == "-h" || "$1" == "--help" || $# -eq 0 ]]; then
+    python3 "$SCRIPT" --help
+else
+    python3 "$SCRIPT" "$@"
+fi
 EOL
 
 chmod +x "$WRAPPER"
+echo -e "${GREEN}[✓] Global command 'as-recon' created at $WRAPPER${RESET}"
 
-# Ensure PATH
-SHELL_RC="$HOME/.bashrc"
-if [ -n "$ZSH_VERSION" ]; then
-    SHELL_RC="$HOME/.zshrc"
-fi
+echo -e "${YELLOW}[*] Ensure $BIN_DIR is in your PATH. Run 'source ~/.bashrc' or 'source ~/.zshrc' if needed.${RESET}"
 
-if ! grep -q "$BIN_DIR" "$SHELL_RC"; then
-    echo -e "\n# AS-RECON bin path" >> "$SHELL_RC"
-    echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$SHELL_RC"
-fi
-
-echo -e "${G}[✓] AS-RECON installed successfully!${W}"
-echo -e "${B}[*] Make sure to run 'source $SHELL_RC' or reopen your terminal.${W}"
-echo -e "${B}[*] Usage: as-recon example.com${W}"
-echo -e "${B}[*] Advanced: as-recon example.com --threads 300 --rate 150 --depth 6 --api-keys api_keys.json${W}"
-echo -e "${G}Happy Recon! 🔍${W}"
+echo -e "${GREEN}${BOLD}[*] AS-RECON Setup Completed! ✅${RESET}"
+echo -e "Usage: as-recon example.com"
+echo -e "Advanced: as-recon example.com --threads 300 --rate 150 --depth 6 --api-keys api_keys.json"
+echo -e "Happy Recon! 🔍"
