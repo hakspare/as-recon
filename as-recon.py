@@ -4,18 +4,23 @@ import os
 import subprocess
 import re
 
-# ⚡ [ARCHITECT POWER SETUP] ভার্চুয়াল এনভায়রনমেন্টের ভেতরে অটো-ফিক্স
+# ⚡ [ARCHITECT POWER] পারমিশন এবং মডিউল অটো-ফিক্সার
 def power_setup():
     required = ['aiohttp', 'aiodns', 'networkx', 'requests', 'urllib3']
     for module in required:
         try:
             __import__(module)
         except ImportError:
-            # venv এর ভেতরে থাকলে --user লাগে না, সরাসরি ইনস্টল করতে হয়
-            # আমরা --break-system-packages ব্যবহার করবো না এখানে, সরাসরি pip install দেব
-            subprocess.check_call([sys.executable, "-m", "pip", "install", module, "--quiet"])
+            try:
+                # venv এর ভেতরে সাইলেন্টলি ইনস্টল করার চেষ্টা
+                subprocess.check_call([sys.executable, "-m", "pip", "install", module, "--quiet"])
+            except subprocess.CalledProcessError:
+                # পারমিশন এরর দিলে ইউজারকে সলিউশন বলে দেবে
+                print(f"\033[91m[!] Permission Denied in /opt/as-recon/venv/\033[0m")
+                print(f"\033[92m[*] Please run this once: sudo chown -R $USER:$USER /opt/as-recon/\033[0m")
+                sys.exit(1)
 
-# রান হওয়ার আগেই সব মডিউল সাইলেন্টলি রেডি করবে
+# রান হওয়ার আগেই সব রেডি করবে
 power_setup()
 
 import asyncio
@@ -27,7 +32,7 @@ import json
 import argparse
 import random
 
-# SSL warnings বন্ধ (Probing Speed বাড়াতে)
+# SSL warnings বন্ধ (Max Speed)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Colors & Logo
@@ -41,7 +46,7 @@ LOGO = f"""
  ██║  ██║███████║      ██║  ██║███████╗╚██████╗ ╚██████╔╝██║ ╚████║
  ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝
 {W}
-          {Y}AS-RECON v24.0{W} • {C}Clean Output & Auto-Venv Power{W}
+          {Y}AS-RECON v24.1{W} • {C}Clean Output & Auto-Permission{W}
 """
 
 class ReconEngine:
@@ -89,7 +94,7 @@ class ReconEngine:
         connector = aiohttp.TCPConnector(limit=self.threads, ssl=False)
         self.session = aiohttp.ClientSession(connector=connector)
         
-        # এখানে আপনার ৫০+ প্যাসিভ সোর্স থেকে ডাটা আসবে
+        # এখানে আপনার প্যাসিভ সোর্স ডাটা আসবে
         await self.queue.put((10, random.random(), self.domain))
         
         workers = [asyncio.create_task(self.worker()) for _ in range(self.threads)]
