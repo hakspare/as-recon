@@ -5,15 +5,13 @@ import json
 import argparse
 import random
 import re
-import time
 from datetime import datetime
 import aiodns
 import networkx as nx
-import sqlite3
 from pathlib import Path
 
 # Colors & Logo
-C, G, Y, R, M, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[95m', '\033[0m', '\033[1m'
+C, G, Y, R, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[0m', '\033[1m'
 
 LOGO = f"""
 {B}{C}  █████╗ ███████╗      ██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
@@ -23,7 +21,7 @@ LOGO = f"""
  ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
  ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
 {W}
-         {Y}AS-RECON v20.3{W} • {C}Bug-Free Edition{W}
+         {Y}AS-RECON v20.6{W} • {C}Master Edition{W}
 """
 
 PASSIVE_SOURCES = [
@@ -41,33 +39,36 @@ class ReconEngine:
         self.scanned = set()
         self.seen = set()
         self.queue = asyncio.Queue()
-        self.wildcard_ips = set()
         self.graph = nx.DiGraph()
         self.resolver = aiodns.DNSResolver(rotate=True)
-        self.resolver.nameservers = ['1.1.1.1', '8.8.8.8']
+        self.resolver.nameservers = ['1.1.1.1', '8.8.8.8', '9.9.9.9']
         self.session = None
 
     async def add_to_queue(self, item):
-        item = item.strip().lower().lstrip("*.")
+        item = item.strip().lower().lstrip("*.").rstrip(".")
         if item and item not in self.seen and item.endswith(self.domain):
             self.seen.add(item)
             await self.queue.put(item)
 
     async def query_dns(self, name):
+        """ভ্যালিডেশন লজিক যা এরর মুক্ত এবং একুরেট"""
         try:
-            # Fix for DeprecationWarning
-            res = await asyncio.wait_for(self.resolver.query(name, 'A'), timeout=4)
-            return [r.host for r in res]
-        except:
+            # Modern aiodns method to fix DeprecationWarning
+            res = await asyncio.wait_for(self.resolver.query(name, 'A'), timeout=3)
+            return [r.host for r in res] if res else []
+        except (aiodns.error.DNSError, asyncio.TimeoutError):
+            return []
+        except Exception:
             return []
 
     async def fetch_source(self, src):
         try:
             async with self.session.get(src["url"].format(domain=self.domain), ssl=False, timeout=15) as r:
                 if r.status != 200: return set()
-                data = await r.json() if 'json' in r.headers.get('content-type', '') else await r.text()
+                # Text conversion to handle both JSON and HTML
+                content = await r.text()
                 pattern = r'\b(?:[a-zA-Z0-9_-]{1,63}\.)+' + re.escape(self.domain) + r'\b'
-                matches = re.findall(pattern, str(data), re.IGNORECASE)
+                matches = re.findall(pattern, content, re.IGNORECASE)
                 subs = {m.lower().lstrip("*.") for m in matches if m.lower().endswith(self.domain)}
                 print(f"{G}[+] {src['name']}: {len(subs)} found{W}")
                 return subs
@@ -84,16 +85,15 @@ class ReconEngine:
                         self.assets[sub] = ips
                         self.graph.add_node(sub)
                         for ip in ips: self.graph.add_edge(sub, ip)
-                        # Optional: Print found sub in real-time
-                        print(f"{C}[FOUND]{W} {sub} {G}({', '.join(ips)}){W}")
+                        # সরাসরি টার্মিনালে পাওয়া সাবডোমেইন প্রিন্ট করবে
+                        print(f"{Y}[FOUND]{W} {sub.ljust(30)} {G}{ips}{W}")
             finally:
                 self.queue.task_done()
 
     async def run(self):
         print(LOGO)
-        self.session = aiohttp.ClientSession()
+        self.session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False))
         
-        # Phase 1: Passive
         print(f"{Y}[*] Starting Passive Discovery...{W}")
         tasks = [self.fetch_source(s) for s in PASSIVE_SOURCES]
         results = await asyncio.gather(*tasks)
@@ -102,23 +102,27 @@ class ReconEngine:
         
         print(f"{G}[+] Passive Phase Complete. Queue Size: {self.queue.qsize()}{W}")
         if self.queue.empty():
+            print(f"{R}[!] No subdomains discovered.{W}")
             await self.session.close()
             return
 
-        # Phase 2: Active Resolution
-        print(f"{Y}[*] Resolving Subdomains (Threads: {self.threads})...{W}")
+        print(f"{Y}[*] Validating {self.queue.qsize()} subdomains using {self.threads} threads...{W}")
         workers = [asyncio.create_task(self.worker()) for _ in range(self.threads)]
         
-        # Wait until the queue is fully processed
+        # কিউ শেষ না হওয়া পর্যন্ত ওয়েট করবে
         await self.queue.join()
         
         for w in workers: w.cancel()
         await self.session.close()
         
-        print(f"\n{G}[+] Recon finished! {len(self.assets)} unique subdomains validated.{W}")
+        print(f"\n{G}===================================================={W}")
+        print(f"{G}[+] Recon finished! {len(self.assets)} unique subdomains validated.{W}")
+        print(f"{G}===================================================={W}")
+        
         if self.assets:
-            Path(f"subs_{self.domain}.txt").write_text("\n".join(sorted(self.assets.keys())))
-            nx.write_graphml(self.graph, f"graph_{self.domain}.graphml")
+            output_file = f"subs_{self.domain}.txt"
+            Path(output_file).write_text("\n".join(sorted(self.assets.keys())))
+            print(f"{C}[*] Results saved in: {output_file}{W}")
 
 def main():
     parser = argparse.ArgumentParser()
