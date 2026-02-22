@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-AS-RECON v22.0 - Subfinder Level Power (50+ Sources Ready - 2026)
-Direct run: asrecon google.com --live
+AS-RECON v23.0 - Subfinder Level Power (50+ Sources, Rate Limit Safe, 2026)
 """
 
 import asyncio
@@ -14,6 +13,7 @@ import aiodns
 import ssl
 import time
 from pathlib import Path
+from datetime import datetime
 
 C = '\033[96m'
 G = '\033[92m'
@@ -29,10 +29,10 @@ LOGO = f"""
 ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
 ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
 {W}
-    {Y}AS-RECON v22.0 - Subfinder Level (50+ Sources Ready){W}
+    {Y}AS-RECON v23.0 - Subfinder Killer (50+ Sources Ready){W}
 """
 
-# 20+ active/working sources (2026) - API key দরকার হলে --api-keys দাও
+# 50+ sources (subfinder-inspired list - active ones prioritized)
 PASSIVE_SOURCES = [
     {"name": "crtsh", "url": "https://crt.sh/?q=%.{domain}&output=json", "needs_key": False},
     {"name": "anubis", "url": "https://jldc.me/anubis/subdomains/{domain}", "needs_key": False},
@@ -40,10 +40,15 @@ PASSIVE_SOURCES = [
     {"name": "chaos", "url": "https://chaos.projectdiscovery.io/assets/{domain}.json", "needs_key": True},
     {"name": "virustotal", "url": "https://www.virustotal.com/api/v3/domains/{domain}/subdomains", "needs_key": True},
     {"name": "securitytrails", "url": "https://api.securitytrails.com/v1/domain/{domain}/subdomains", "needs_key": True},
-    # আরও যোগ করা যাবে (censys, bufferover, threatminer ইত্যাদি)
+    {"name": "censys", "url": "https://search.censys.io/api/v2/certificates/search?q=parsed.names%3A*.{domain}", "needs_key": True},
+    {"name": "bufferover", "url": "https://dns.bufferover.run/dns?q=.{domain}", "needs_key": False},
+    {"name": "threatminer", "url": "https://api.threatminer.org/v2/domain/report/?q={domain}&t=subdomains", "needs_key": False},
+    {"name": "urlscan", "url": "https://urlscan.io/api/v1/search/?q=domain:{domain}", "needs_key": False},
+    # আরও 40+ যোগ করা যাবে (rapiddns, riddler, dnsdb, github, etc.)
+    # এখানে শুধু 10টা রাখলাম যাতে default run-এ error কম হয়
 ]
 
-PERMUTATIONS = ["dev", "test", "api", "app", "stage", "prod", "admin", "beta"]
+PERMUTATIONS = ["dev", "test", "api", "app", "stage", "prod", "admin", "beta", "internal", "old"]
 
 TECH_PATTERNS = {
     "Apache": b"apache",
@@ -53,7 +58,7 @@ TECH_PATTERNS = {
 }
 
 class ReconEngine:
-    def __init__(self, domain, threads=10, rate=5, depth=4, live=False, api_keys_path=None):
+    def __init__(self, domain, threads=12, rate=5, depth=5, live=False, api_keys_path=None):
         self.domain = domain.lower()
         self.threads = threads
         self.rate = rate
@@ -68,6 +73,11 @@ class ReconEngine:
         self.resolver = aiodns.DNSResolver()
         self.wildcard_ips = set()
         self.skipped = 0
+        self.user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+        ]
 
     def load_api_keys(self, path):
         if not path or not Path(path).exists():
@@ -76,7 +86,7 @@ class ReconEngine:
             with open(path) as f:
                 return json.load(f)
         except:
-            print(f"{R}API keys load failed{W}")
+            print(f"{R}Failed to load API keys{W}")
             return {}
 
     async def add_to_queue(self, sub, prio=10):
@@ -87,21 +97,21 @@ class ReconEngine:
 
     async def resolve(self, name):
         try:
-            res = await asyncio.wait_for(self.resolver.query_dns(name, 'A'), timeout=2.5)
+            res = await asyncio.wait_for(self.resolver.query_dns(name, 'A'), timeout=2.0)
             return [r.host for r in res if hasattr(r, 'host') and r.host]
         except:
             return []
 
     async def detect_wildcard(self):
         print(f"{Y}[*] Detecting wildcard...{W}")
-        randoms = [f"nonexist{random.randint(1000000,9999999)}.{self.domain}" for _ in range(5)]
+        randoms = [f"nonexist{random.randint(1000000,9999999)}.{self.domain}" for _ in range(6)]
         ips_sets = []
         for r in randoms:
             ips = await self.resolve(r)
             if ips:
                 ips_sets.append(set(ips))
-            await asyncio.sleep(0.5)
-        if len(ips_sets) >= 3 and len(set.intersection(*ips_sets)) >= 2:
+            await asyncio.sleep(random.uniform(0.3, 1.0))
+        if len(ips_sets) >= 4 and len(set.intersection(*ips_sets)) >= 3:
             self.wildcard_ips = set.intersection(*ips_sets)
             print(f"{Y}[!] Wildcard IPs: {self.wildcard_ips}{W}")
         else:
@@ -114,19 +124,23 @@ class ReconEngine:
             return set()
 
         url = src["url"].format(domain=self.domain)
-        headers = {}
+        headers = {
+            "User-Agent": random.choice(self.user_agents),
+            "Accept": "application/json",
+        }
         if src["needs_key"]:
             key = self.api_keys.get(src["name"], "")
             headers['X-API-Key'] = key
             headers['apikey'] = key
             headers['Authorization'] = f"Bearer {key}"
 
-        for attempt in range(4):  # increased retry
+        for attempt in range(5):  # aggressive retry for rate limit
             try:
                 async with self.session.get(url, headers=headers, timeout=12, ssl=False) as resp:
                     if resp.status in [429, 503]:
-                        print(f"{Y}{src['name']} rate limit ({resp.status}), waiting...{W}")
-                        await asyncio.sleep(5 * (attempt + 1))
+                        wait = 5 * (attempt + 1) + random.uniform(0, 3)
+                        print(f"{Y}{src['name']} rate limit ({resp.status}), waiting {wait:.1f}s...{W}")
+                        await asyncio.sleep(wait)
                         continue
                     if resp.status != 200:
                         print(f"{Y}{src['name']} → {resp.status}{W}")
@@ -135,42 +149,40 @@ class ReconEngine:
                     text = await resp.text()
                     subs = set()
 
-                    if src["name"] == "crtsh":
-                        try:
-                            data = json.loads(text)
-                            for entry in data:
-                                names = entry.get("name_value", "").splitlines()
-                                for n in names:
-                                    n = n.strip().lower().lstrip("*.")
-                                    if n.endswith(self.domain) and n != self.domain:
-                                        subs.add(n)
-                        except:
-                            pass
-
-                    elif src["name"] == "anubisdb":
+                    # Common parsing logic for all sources
+                    if 'json' in resp.headers.get('content-type', ''):
                         try:
                             data = json.loads(text)
                             if isinstance(data, list):
-                                subs = {s.lower().rstrip(".").lstrip("*.") for s in data 
-                                        if isinstance(s, str) and s.lower().endswith(self.domain)}
+                                for item in data:
+                                    if isinstance(item, str):
+                                        clean = item.lower().rstrip(".").lstrip("*.")
+                                        if clean.endswith(self.domain) and clean != self.domain:
+                                            subs.add(clean)
+                                    elif isinstance(item, dict):
+                                        for k in ['name_value', 'hostname', 'domain', 'subdomain']:
+                                            val = item.get(k, "")
+                                            if val:
+                                                for line in str(val).splitlines():
+                                                    clean = line.strip().lower().lstrip("*.")
+                                                    if clean.endswith(self.domain) and clean != self.domain:
+                                                        subs.add(clean)
                         except:
                             pass
 
-                    elif src["name"] == "alienvault_otx":
-                        try:
-                            data = json.loads(text)
-                            for rec in data.get("passive_dns", []):
-                                h = rec.get("hostname", "").lower().rstrip(".")
-                                if h.endswith(self.domain) and h != self.domain:
-                                    subs.add(h)
-                        except:
-                            pass
+                    # Generic fallback
+                    pattern = r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+' + re.escape(self.domain)
+                    matches = re.findall(pattern, text, re.I)
+                    for m in matches:
+                        clean = m.lower().rstrip(".").lstrip("*.")
+                        if clean.endswith(self.domain) and clean != self.domain:
+                            subs.add(clean)
 
                     print(f"{G}{src['name']}: {len(subs)} subs found{W}")
                     return subs
             except Exception as e:
                 print(f"{R}{src['name']} failed (attempt {attempt+1}): {str(e)[:60]}{W}")
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2 ** attempt + random.uniform(0, 2))
 
         return set()
 
@@ -183,9 +195,9 @@ class ReconEngine:
                 all_subs.update(res)
         print(f"\n{G}Passive sources collected {len(all_subs)} unique subdomains{W}")
         if self.skipped > 0:
-            print(f"{Y}Skipped {self.skipped} sources due to missing API keys{W}")
+            print(f"{Y}Skipped {self.skipped} sources (missing API keys){W}")
         for sub in sorted(all_subs, key=lambda x: x.count('.')):
-            prio = 25 if any(k in sub for k in ['api','dev','test','prod']) else 12
+            prio = 25 if any(k in sub for k in ['api','dev','test','prod','stage']) else 12
             await self.add_to_queue(sub, prio)
 
     async def probe_live(self, sub):
@@ -202,7 +214,7 @@ class ReconEngine:
                     ssl_ctx.check_hostname = False
                     ssl_ctx.verify_mode = ssl.CERT_NONE
 
-                reader, writer = await asyncio.open_connection(sub, port, ssl=ssl_ctx, timeout=2.5)
+                reader, writer = await asyncio.open_connection(sub, port, ssl=ssl_ctx, timeout=2.0)
 
                 if port in [80, 8080]:
                     req = f"GET / HTTP/1.1\r\nHost: {sub}\r\nConnection: close\r\n\r\n".encode()
@@ -302,15 +314,16 @@ class ReconEngine:
                 print(f"{Y}No valid subdomains found.{W}")
 
 def main():
-    parser = argparse.ArgumentParser(description="AS-RECON v21.5 - Run: asrecon <domain>")
+    parser = argparse.ArgumentParser(description="AS-RECON v22.0 - Subfinder Level")
     parser.add_argument("domain", help="Target domain")
     parser.add_argument("--threads", type=int, default=10)
     parser.add_argument("--rate", type=int, default=5)
-    parser.add_argument("--depth", type=int, default=4)
+    parser.add_argument("--depth", type=int, default=5)
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--api-keys", type=str, help="Path to API keys JSON")
     args = parser.parse_args()
 
-    engine = ReconEngine(args.domain, args.threads, args.rate, args.depth, args.live)
+    engine = ReconEngine(args.domain, args.threads, args.rate, args.depth, args.live, args.api_keys)
     asyncio.run(engine.run())
 
 if __name__ == "__main__":
