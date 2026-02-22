@@ -55,7 +55,7 @@ The engine prioritizes speed, accuracy, and scalability — suitable for both in
 ## ⚡ Quick Installation (1–2 Minutes)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/as-recon.git
+git clone https://github.com/hakspare/as-recon.git
 cd as-recon
 chmod +x setup.sh
 ./setup.sh
