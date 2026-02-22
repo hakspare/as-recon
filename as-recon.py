@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AS-RECON v23.3 - Full 50+ Sources + All Fixes Solved (2026)
+AS-RECON v23.4 - Full 50+ Sources + Problem Solved Edition (2026)
 """
 
 import asyncio
@@ -28,7 +28,7 @@ LOGO = f"""
 ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
 ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
 {W}
-    {Y}AS-RECON v23.3 - Full 50+ Sources + Stable & Powerful{W}
+    {Y}AS-RECON v23.4 - 50+ Sources + All Problems Solved{W}
 """
 
 SOURCE_SCORE = {
@@ -102,6 +102,7 @@ class ReconEngine:
         self.resolver = aiodns.DNSResolver()
         self.wildcard_ips = set()
         self.skipped = 0
+        self.failed = 0
         self.user_agents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -128,7 +129,7 @@ class ReconEngine:
             await self.queue.put((-prio - score_boost, random.random(), clean))
 
     async def resolve(self, name):
-        await asyncio.sleep(random.uniform(0.2, 0.6))  # avoid DNS rate limit
+        await asyncio.sleep(random.uniform(0.2, 0.6))
         try:
             res = await asyncio.wait_for(self.resolver.query_dns(name, 'A'), timeout=2.5)
             return [r.host for r in res if hasattr(r, 'host') and r.host]
@@ -152,7 +153,8 @@ class ReconEngine:
 
     async def fetch_source(self, src):
         if src["needs_key"] and src["name"] not in self.api_keys:
-            print(f"{Y}Skipping {src['name']}: API key missing{W}")
+            if self.skipped < 5:  # limit skip message to 5
+                print(f"{Y}Skipping {src['name']}: API key missing{W}")
             self.skipped += 1
             return set()
 
@@ -167,17 +169,21 @@ class ReconEngine:
             headers['apikey'] = key
             headers['Authorization'] = f"Bearer {key}"
 
-        for attempt in range(6):
+        for attempt in range(8):  # strong retry
             try:
-                async with self.session.get(url, headers=headers, timeout=15, ssl=False) as resp:
+                async with self.session.get(url, headers=headers, timeout=18, ssl=False) as resp:
                     if resp.status in [429, 503]:
-                        wait = 10 * (attempt + 1) + random.uniform(0, 5)
+                        wait = 10 * (attempt + 1) + random.uniform(0, 6)
                         print(f"{Y}{src['name']} rate limit ({resp.status}), waiting {wait:.1f}s...{W}")
                         await asyncio.sleep(wait)
                         continue
                     if resp.status != 200:
+                        if resp.status in [401, 403, 404]:
+                            print(f"{Y}{src['name']} access denied or not found ({resp.status}){W}")
+                            self.failed += 1
+                            break
                         print(f"{Y}{src['name']} → {resp.status}{W}")
-                        break
+                        continue
 
                     text = await resp.text()
                     subs = set()
@@ -213,6 +219,9 @@ class ReconEngine:
                     return subs
             except Exception as e:
                 print(f"{R}{src['name']} failed (attempt {attempt+1}): {str(e)[:60]}{W}")
+                if "connect" in str(e).lower() or "dns" in str(e).lower():
+                    self.failed += 1
+                    break
                 await asyncio.sleep(4 ** attempt + random.uniform(0, 4))
 
         return set()
@@ -226,7 +235,9 @@ class ReconEngine:
                 all_subs.update(res)
         print(f"\n{G}Passive sources collected {len(all_subs)} unique subdomains{W}")
         if self.skipped > 0:
-            print(f"{Y}Skipped {self.skipped} sources due to missing API keys{W}")
+            print(f"{Y}Skipped {self.skipped} sources (missing API keys){W}")
+        if self.failed > 0:
+            print(f"{Y}Failed {self.failed} sources (connection or access error){W}")
         for sub in sorted(all_subs, key=lambda x: x.count('.')):
             prio = 25 if any(k in sub for k in ['api','dev','test','prod']) else 12
             await self.add_to_queue(sub, prio)
@@ -345,7 +356,7 @@ class ReconEngine:
                 print(f"{Y}No valid subdomains found.{W}")
 
 def main():
-    parser = argparse.ArgumentParser(description="AS-RECON v23.2 - Full 50+ Sources")
+    parser = argparse.ArgumentParser(description="AS-RECON v23.3 - Full 50+ Sources")
     parser.add_argument("domain", help="Target domain")
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--rate", type=int, default=4)
