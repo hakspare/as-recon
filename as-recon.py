@@ -5,9 +5,7 @@ import json
 import argparse
 import random
 import re
-from datetime import datetime
-import aiodns
-import networkx as nx
+import socket
 from pathlib import Path
 
 # Colors & Logo
@@ -21,7 +19,7 @@ LOGO = f"""
  ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
  ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
 {W}
-         {Y}AS-RECON v20.6{W} • {C}Master Edition{W}
+         {Y}AS-RECON v20.7{W} • {C}Master Edition{W}
 """
 
 PASSIVE_SOURCES = [
@@ -39,9 +37,6 @@ class ReconEngine:
         self.scanned = set()
         self.seen = set()
         self.queue = asyncio.Queue()
-        self.graph = nx.DiGraph()
-        self.resolver = aiodns.DNSResolver(rotate=True)
-        self.resolver.nameservers = ['1.1.1.1', '8.8.8.8', '9.9.9.9']
         self.session = None
 
     async def add_to_queue(self, item):
@@ -50,22 +45,21 @@ class ReconEngine:
             self.seen.add(item)
             await self.queue.put(item)
 
-    async def query_dns(self, name):
-        """ভ্যালিডেশন লজিক যা এরর মুক্ত এবং একুরেট"""
+    async def resolve_host(self, name):
+        """DNS Resolution using system resolver for 100% accuracy"""
         try:
-            # Modern aiodns method to fix DeprecationWarning
-            res = await asyncio.wait_for(self.resolver.query(name, 'A'), timeout=3)
-            return [r.host for r in res] if res else []
-        except (aiodns.error.DNSError, asyncio.TimeoutError):
-            return []
-        except Exception:
+            loop = asyncio.get_event_loop()
+            # Standard socket resolver - bypasses aiodns bugs
+            addr_info = await loop.getaddrinfo(name, None, family=socket.AF_INET)
+            ips = list(set([info[4][0] for info in addr_info]))
+            return ips
+        except:
             return []
 
     async def fetch_source(self, src):
         try:
             async with self.session.get(src["url"].format(domain=self.domain), ssl=False, timeout=15) as r:
                 if r.status != 200: return set()
-                # Text conversion to handle both JSON and HTML
                 content = await r.text()
                 pattern = r'\b(?:[a-zA-Z0-9_-]{1,63}\.)+' + re.escape(self.domain) + r'\b'
                 matches = re.findall(pattern, content, re.IGNORECASE)
@@ -80,13 +74,11 @@ class ReconEngine:
             try:
                 if sub not in self.scanned:
                     self.scanned.add(sub)
-                    ips = await self.query_dns(sub)
+                    ips = await self.resolve_host(sub)
                     if ips:
                         self.assets[sub] = ips
-                        self.graph.add_node(sub)
-                        for ip in ips: self.graph.add_edge(sub, ip)
-                        # সরাসরি টার্মিনালে পাওয়া সাবডোমেইন প্রিন্ট করবে
-                        print(f"{Y}[FOUND]{W} {sub.ljust(30)} {G}{ips}{W}")
+                        # Real-time success output
+                        print(f"{Y}[VALID]{W} {sub.ljust(30)} {G}{ips}{W}")
             finally:
                 self.queue.task_done()
 
@@ -100,16 +92,18 @@ class ReconEngine:
         for res in results:
             for sub in res: await self.add_to_queue(sub)
         
-        print(f"{G}[+] Passive Phase Complete. Queue Size: {self.queue.qsize()}{W}")
-        if self.queue.empty():
+        q_size = self.queue.qsize()
+        print(f"{G}[+] Passive Phase Complete. Queue Size: {q_size}{W}")
+        
+        if q_size == 0:
             print(f"{R}[!] No subdomains discovered.{W}")
             await self.session.close()
             return
 
-        print(f"{Y}[*] Validating {self.queue.qsize()} subdomains using {self.threads} threads...{W}")
+        print(f"{Y}[*] Validating {q_size} subdomains using {self.threads} threads...{W}")
         workers = [asyncio.create_task(self.worker()) for _ in range(self.threads)]
         
-        # কিউ শেষ না হওয়া পর্যন্ত ওয়েট করবে
+        # Wait until everything in the queue is processed
         await self.queue.join()
         
         for w in workers: w.cancel()
@@ -127,7 +121,7 @@ class ReconEngine:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("domain")
-    parser.add_argument("--threads", type=int, default=100)
+    parser.add_argument("--threads", type=int, default=50) # Reduced default threads for stability
     args = parser.parse_args()
     asyncio.run(ReconEngine(args.domain, args.threads).run())
 
