@@ -13,39 +13,60 @@ echo -e "${BOLD}${GREEN}[*] AS-RECON v21.0 Installer Starting...${NC}"
 OS="$(uname -s)"
 echo -e "${YELLOW}[*] Detected OS: $OS${NC}"
 
-# Python check
-PY_MAJOR=$(python3 -c 'import sys; print(sys.version_info[0])')
-PY_MINOR=$(python3 -c 'import sys; print(sys.version_info[1])')
+# Check Python 3.8+
+PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')
+PY_MAJOR=$(echo $PY_VER | cut -d. -f1)
+PY_MINOR=$(echo $PY_VER | cut -d. -f2)
 if [[ "$PY_MAJOR" -lt 3 || ( "$PY_MAJOR" -eq 3 && "$PY_MINOR" -lt 8 ) ]]; then
-    echo -e "${RED}[✗] Python 3.8+ required. Found $PY_MAJOR.$PY_MINOR${NC}"
+    echo -e "${RED}[✗] Python 3.8+ required, found $PY_VER${NC}"
     exit 1
 fi
-echo -e "${GREEN}[✓] Python OK: $PY_MAJOR.$PY_MINOR${NC}"
+echo -e "${GREEN}[✓] Python OK: $PY_VER${NC}"
 
-# Install dependencies (user-local, PEP 668 safe)
-echo -e "${YELLOW}[*] Installing Python dependencies locally...${NC}"
-python3 -m pip install --user -r requirements.txt --upgrade
+# Create virtual environment inside repo
+VENV_DIR="$HOME/.as-recon-venv"
+echo -e "${YELLOW}[*] Creating virtual environment at $VENV_DIR...${NC}"
+python3 -m venv "$VENV_DIR"
+
+# Activate venv
+source "$VENV_DIR/bin/activate"
+
+# Upgrade pip inside venv
+pip install --upgrade pip --quiet
+
+# Install dependencies from requirements.txt
+if [ -f "requirements.txt" ]; then
+    echo -e "${YELLOW}[*] Installing Python dependencies...${NC}"
+    pip install -r requirements.txt --quiet
+else
+    echo -e "${YELLOW}[!] requirements.txt not found, skipping dependencies.${NC}"
+fi
 
 # Set global command
 SCRIPT="as-recon.py"
-if [ ! -f "$SCRIPT" ]; then
-    echo -e "${RED}[✗] Entry script $SCRIPT not found!${NC}"
-    exit 1
-fi
+TARGET_BIN="$HOME/.local/bin/as-recon"
+mkdir -p "$(dirname "$TARGET_BIN")"
+echo -e "${YELLOW}[*] Creating global command at $TARGET_BIN...${NC}"
 
-TARGET_DIR="$HOME/.local/bin"
-mkdir -p "$TARGET_DIR"
-cp "$SCRIPT" "$TARGET_DIR/as-recon"
-chmod +x "$TARGET_DIR/as-recon"
+# Wrapper script to always use venv
+cat > "$TARGET_BIN" <<EOL
+#!/usr/bin/env bash
+source "$VENV_DIR/bin/activate"
+python "$PWD/$SCRIPT" "\$@"
+EOL
+
+chmod +x "$TARGET_BIN"
 
 # Update PATH for current shell session
-export PATH="$TARGET_DIR:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 
 echo -e "${GREEN}[✓] AS-RECON installed successfully!${NC}"
-echo -e "${YELLOW}[*] Make sure $TARGET_DIR is in your PATH.${NC}"
+echo -e "${YELLOW}[*] Ensure $HOME/.local/bin is in your PATH.${NC}"
 echo -e "Run: source ~/.bashrc or source ~/.zshrc if 'as-recon' is not found"
 
-echo -e "\nUsage example:"
+echo -e "\nUsage:"
 echo -e "  as-recon example.com"
-echo -e "Advanced usage:"
+echo -e "Advanced:"
 echo -e "  as-recon example.com --threads 300 --rate 150 --depth 6 --api-keys api_keys.json"
+
+deactivate
