@@ -62,6 +62,15 @@ else
 fi
 
 # ----------------------------
+# Check for entrypoint
+# ----------------------------
+if [ ! -f "as-recon" ]; then
+    echo -e "${RED}✗ Entry script 'as-recon' not found!${NC}"
+    echo -e "Make sure repo has a Python entrypoint named 'as-recon'"
+    exit 1
+fi
+
+# ----------------------------
 # Make script globally executable
 # ----------------------------
 INSTALL_BIN="$HOME/.local/bin"
