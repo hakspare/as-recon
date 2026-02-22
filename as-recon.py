@@ -3,30 +3,32 @@ import sys
 import os
 import subprocess
 
-# ⚡ [GLOBAL FIX] সকল ইউজারের জন্য অটো-পারমিশন ও মডিউল সেটআপ
-def global_setup():
-    # ১. যদি ইউজার venv এর ভেতর থাকে এবং পারমিশন না থাকে
-    # আমরা সরাসরি venv এর ভেতরেই প্যাকেজগুলো ইন্সটল করার কমান্ড পুশ করবো
+# ⚡ [GLOBAL ZERO-STEP FIX] পারমিশন বা venv-এর তোয়াক্কা করবে না
+def global_power_fix():
+    required = ['aiohttp', 'aiodns', 'networkx', 'requests', 'urllib3']
+    
+    # ইউজার সাইট-প্যাকেজ পাথ ফোর্স করা (যাতে venv বাধা দিতে না পারে)
+    import site
+    user_site = site.getusersitepackages()
+    if user_site not in sys.path:
+        sys.path.append(user_site)
+
     try:
         import requests
-        import urllib3
         import aiohttp
     except ImportError:
-        print("\033[93m[*] First time setup... Optimizing power for all users...\033[0m")
-        
-        # venv এর ভেতরের pip কে কল করা (কোনো sudo লাগবে না যদি মালিকানা ঠিক থাকে)
-        # আর যদি পারমিশন এরর দেয়, তবে ইউজারকে ডিরেক্টলি সলিউশন ইনজেক্ট করা
-        pip_cmd = [sys.executable, "-m", "pip", "install", "requests", "urllib3", "aiohttp", "aiodns", "networkx", "--quiet"]
-        
-        try:
-            subprocess.check_call(pip_cmd)
-        except subprocess.CalledProcessError:
-            # যদি তাও না হয়, তবে সিস্টেম লেভেলে বাইপাস করার ট্রাই করবে
-            os.system(f"sudo {sys.executable} -m pip install requests urllib3 aiohttp aiodns networkx --break-system-packages --quiet")
+        # venv-এর ভেতর লিখতে না পারলে, এটি সাইলেন্টলি ইউজার লেভেলে ইন্সটল হবে
+        # এখানে কোনো sudo বা /opt/ পারমিশন লাগবে না
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install", *required, 
+            "--user", "--break-system-packages", "--quiet"
+        ])
+        # ইন্সটল হওয়ার পর পাথ রিফ্রেশ
+        if user_site not in sys.path: sys.path.append(user_site)
 
-global_setup()
+# ইঞ্জিন স্টার্ট করার আগে দেওয়াল ভাঙা
+global_power_fix()
 
-# এখন মেইন ইঞ্জিন স্টার্ট (১% পাওয়ারও কমবে না)
 import asyncio
 import aiohttp
 import aiodns
@@ -34,13 +36,23 @@ import requests
 import urllib3
 import re
 import argparse
+import random
 
+# SSL warnings বন্ধ (পাওয়ার মেইনটেইনড)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 C, G, Y, R, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[0m', '\033[1m'
 
-# --- আপনার আসল ReconEngine লজিক এখানে থাকবে ---
-# আমি শুধু ইঞ্জিনটা ক্লিন করে দিচ্ছি যাতে জঞ্জাল (0/NA) না আসে
+LOGO = f"""
+{B}{C}  █████╗ ███████╗      ██████╗ ███████╗ ██████╗  ██████╗ ███╗   ██╗
+ ██╔══██╗██╔════╝      ██╔══██╗██╔════╝██╔════╝ ██╔═══██╗████╗  ██║
+ ███████║███████╗      ██████╔╝█████╗  ██║      ██║   ██║██╔██╗ ██║
+ ██╔══██║╚════██║      ██╔══██╗██╔══╝  ██║      ██║   ██║██║╚██╗██║
+ ██║  ██║███████║      ██║  ██║███████╗╚██████╗ ╚██████╔╝██║ ╚████║
+ ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝
+{W}
+          {Y}AS-RECON v29.0{W} • {C}Zero-Step Universal Fix{W}
+"""
 
 class ReconEngine:
     def __init__(self, domain, threads=300):
@@ -48,12 +60,12 @@ class ReconEngine:
         self.threads = threads
         self.queue = asyncio.PriorityQueue()
         self.scanned = set()
+        self.session = None
 
     async def get_http_info(self, subdomain):
         url = f"http://{subdomain}"
         try:
             async with self.session.get(url, timeout=7, verify_ssl=False) as resp:
-                # [FIX] শুধু সলিড রেসপন্স আসলে ডাটা দেখাবে
                 if resp.status != 0:
                     text = await resp.text()
                     title = re.search(r'<title>(.*?)</title>', text, re.I)
@@ -63,7 +75,7 @@ class ReconEngine:
     async def worker(self):
         while True:
             try:
-                _, _, sub = await asyncio.wait_for(self.queue.get(), timeout=3.0)
+                _, _, sub = await asyncio.wait_for(self.queue.get(), timeout=4.0)
                 if sub in self.scanned: continue
                 self.scanned.add(sub)
                 try:
@@ -71,12 +83,13 @@ class ReconEngine:
                     ips = [r.host for r in res]
                     if ips:
                         status, title = await self.get_http_info(sub)
-                        if status: # No 0, No N/A
+                        if status:
                             print(f"{G}[+] {sub:<40} {str(ips):<25} [{status}] [{title}]{W}")
                 except: continue
             except: break
 
     async def run(self):
+        print(LOGO)
         connector = aiohttp.TCPConnector(limit=self.threads, ssl=False)
         self.session = aiohttp.ClientSession(connector=connector)
         await self.queue.put((1, 1, self.domain))
@@ -89,5 +102,4 @@ if __name__ == "__main__":
     parser.add_argument("domain", nargs="?")
     args = parser.parse_args()
     if args.domain:
-        print(f"{B}{C}AS-RECON v28.0 - Starting Full Power Scan...{W}\n")
         asyncio.run(ReconEngine(args.domain).run())
