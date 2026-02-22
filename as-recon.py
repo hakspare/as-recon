@@ -2,30 +2,22 @@
 import sys
 import os
 import subprocess
-import importlib
+import re
 
-# ⚡ [ARCHITECT SELF-HEAL] ইউজারকে কিছু করতে হবে না, টুল নিজেই সব ফিক্স করবে
-def auto_setup():
+# ⚡ [ARCHITECT POWER SETUP] ভার্চুয়াল এনভায়রনমেন্টের ভেতরে অটো-ফিক্স
+def power_setup():
     required = ['aiohttp', 'aiodns', 'networkx', 'requests', 'urllib3']
-    missing = []
     for module in required:
         try:
             __import__(module)
         except ImportError:
-            missing.append(module)
-    
-    if missing:
-        # ইউজারকে ডিস্টার্ব না করে সাইলেন্টলি ইনস্টল হবে
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", *missing, "--user", "--break-system-packages", "--quiet"])
-        except:
-            # যদি তাতেও না হয়, ইউজারকে শুধু একবার বলবে sudo দিতে
-            os.system(f"sudo pip install {' '.join(missing)} --break-system-packages --quiet")
+            # venv এর ভেতরে থাকলে --user লাগে না, সরাসরি ইনস্টল করতে হয়
+            # আমরা --break-system-packages ব্যবহার করবো না এখানে, সরাসরি pip install দেব
+            subprocess.check_call([sys.executable, "-m", "pip", "install", module, "--quiet"])
 
-# টুল রান হওয়া মাত্রই সেটআপ চেক করবে
-auto_setup()
+# রান হওয়ার আগেই সব মডিউল সাইলেন্টলি রেডি করবে
+power_setup()
 
-# এখন মেইন ইমপোর্টগুলো হবে
 import asyncio
 import aiohttp
 import aiodns
@@ -34,9 +26,8 @@ import urllib3
 import json
 import argparse
 import random
-import re
 
-# SSL warnings বন্ধ (Max Power)
+# SSL warnings বন্ধ (Probing Speed বাড়াতে)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Colors & Logo
@@ -50,7 +41,7 @@ LOGO = f"""
  ██║  ██║███████║      ██║  ██║███████╗╚██████╗ ╚██████╔╝██║ ╚████║
  ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝
 {W}
-          {Y}AS-RECON v23.0{W} • {C}Zero-Config Power Mode{W}
+          {Y}AS-RECON v24.0{W} • {C}Clean Output & Auto-Venv Power{W}
 """
 
 class ReconEngine:
@@ -58,19 +49,18 @@ class ReconEngine:
         self.domain = domain.lower()
         self.threads = threads
         self.queue = asyncio.PriorityQueue()
-        self.assets = {}
         self.scanned = set()
         self.session = None
 
     async def get_http_info(self, subdomain):
-        """Clean Output Prober: ০ বা এনএ সরাবে, পাওয়ার বাড়াবে"""
+        """Smart Prober: ০ বা এনএ সরাবে, শুধু কাজের রেজাল্ট দেখাবে"""
         url = f"http://{subdomain}"
         try:
             async with self.session.get(url, timeout=7, verify_ssl=False, allow_redirects=True) as resp:
                 status = resp.status
                 text = await resp.text()
-                title = re.search(r'<title>(.*?)</title>', text, re.I)
-                title = title.group(1).strip()[:30] if title else "Live"
+                title_match = re.search(r'<title>(.*?)</title>', text, re.I)
+                title = title_match.group(1).strip()[:30] if title_match else "Live"
                 return status, title
         except:
             return None, None
@@ -83,12 +73,12 @@ class ReconEngine:
                 self.scanned.add(sub)
 
                 try:
-                    # DNS রেজোলিউশন (Full Power)
+                    # DNS Probing (Maximum Power)
                     res = await aiodns.DNSResolver().query(sub, 'A')
                     ips = [r.host for r in res]
                     if ips:
                         status, title = await self.get_http_info(sub)
-                        # [SMART FILTER] শুধু লাইভ রেজাল্ট প্রিন্ট হবে
+                        # জঞ্জাল মুক্ত আউটপুট: শুধু লাইভ টার্গেট
                         if status:
                             print(f"{G}[+] {sub:<40} {str(ips):<25} [{status}] [{title}]{W}")
                 except: continue
@@ -99,7 +89,7 @@ class ReconEngine:
         connector = aiohttp.TCPConnector(limit=self.threads, ssl=False)
         self.session = aiohttp.ClientSession(connector=connector)
         
-        # এখানে আপনার ৫০+ প্যাসিভ সোর্স লোড হবে
+        # এখানে আপনার ৫০+ প্যাসিভ সোর্স থেকে ডাটা আসবে
         await self.queue.put((10, random.random(), self.domain))
         
         workers = [asyncio.create_task(self.worker()) for _ in range(self.threads)]
@@ -108,7 +98,7 @@ class ReconEngine:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("domain")
+    parser.add_argument("domain", help="Target domain")
     args = parser.parse_args()
     
     try:
