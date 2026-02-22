@@ -1,46 +1,40 @@
 #!/usr/bin/env python3
 import sys
 import os
-import subprocess
+import re
+import argparse
+import random
 
-# ⚡ [GOD MODE SETUP] কোনো এরর বা পারমিশন ইস্যু টিকবে না
-def ultimate_power_fix():
+# ⚡ [POWER CHECK] কোনো এরর ছাড়াই সলিড চেক
+def check_dependencies():
     required = ['aiohttp', 'aiodns', 'networkx', 'requests', 'urllib3']
-    
-    # [1] Virtual Environment এর দেওয়াল ভেঙে প্যাকেজ পাথ ইনজেক্ট করা
-    user_site = os.path.expanduser("~/.local/lib/python3.13/site-packages")
-    if user_site not in sys.path:
-        sys.path.insert(0, user_site)
-
-    # [2] অটো-ফিক্স লজিক (No Alert, No Sudo required)
+    missing = []
     for module in required:
         try:
             __import__(module)
         except ImportError:
-            try:
-                # সিস্টেমে থাকা মেইন পাইথন ব্যবহার করে ফোর্স ইনস্টল
-                subprocess.check_call([sys.executable, "-m", "pip", "install", module, "--quiet", "--no-warn-script-location"])
-            except:
-                # যদি venv ব্লক করে, তবে PIP এর ইনজেকশন ব্যবহার করবে
-                os.system(f"{sys.executable} -m pip install {module} --quiet")
+            missing.append(module)
+    
+    if missing:
+        # জঞ্জালমুক্ত পরিষ্কার মেসেজ
+        print(f"\033[91m[!] Missing: {', '.join(missing)}\033[0m")
+        print(f"\033[92m[*] Run this once to fix everything: \033[1msudo pip install {' '.join(missing)} --break-system-packages\033[0m")
+        sys.exit(1)
 
-# টুল স্টার্ট হওয়ার আগেই ইঞ্জিন রেডি
-ultimate_power_fix()
+# রান করার আগেই চেক
+check_dependencies()
 
-# এখন ইম্পোর্ট হবে কোনো এরর ছাড়াই
+# এখন সব পাওয়ারফুল লাইব্রেরি ইম্পোর্ট
 import asyncio
 import aiohttp
 import aiodns
 import requests
 import urllib3
-import re
-import argparse
-import random
+import networkx as nx
 
-# SSL warnings বন্ধ (Power Maximize)
+# SSL warnings বন্ধ (Probing Speed বাড়াতে)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Colors & Logo
 C, G, Y, R, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[0m', '\033[1m'
 
 LOGO = f"""
@@ -51,11 +45,11 @@ LOGO = f"""
  ██║  ██║███████║      ██║  ██║███████╗╚██████╗ ╚██████╔╝██║ ╚████║
  ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝
 {W}
-          {Y}AS-RECON v26.0{W} • {C}100% Auto-Fix & Maximum Power{W}
+          {Y}AS-RECON v27.0{W} • {C}Ultimate Power (Full Fix){W}
 """
 
 class ReconEngine:
-    def __init__(self, domain, threads=300): # পাওয়ার বাড়িয়ে ৩০০ থ্রেড করা হয়েছে
+    def __init__(self, domain, threads=300):
         self.domain = domain.lower()
         self.threads = threads
         self.queue = asyncio.PriorityQueue()
@@ -63,14 +57,14 @@ class ReconEngine:
         self.session = None
 
     async def get_http_info(self, subdomain):
-        """Smart Prober: জঞ্জালমুক্ত সলিড রেজাল্ট"""
+        """Smart Prober: ০ বা এনএ সরাবে, শুধু কাজের রেজাল্ট দেখাবে"""
         url = f"http://{subdomain}"
         try:
-            async with self.session.get(url, timeout=8, verify_ssl=False, allow_redirects=True) as resp:
+            async with self.session.get(url, timeout=7, verify_ssl=False, allow_redirects=True) as resp:
                 status = resp.status
                 text = await resp.text()
-                title = re.search(r'<title>(.*?)</title>', text, re.I)
-                title = title.group(1).strip()[:30] if title else "Live"
+                title_match = re.search(r'<title>(.*?)</title>', text, re.I)
+                title = title_match.group(1).strip()[:30] if title_match else "Live"
                 return status, title
         except:
             return None, None
@@ -86,7 +80,7 @@ class ReconEngine:
                     ips = [r.host for r in res]
                     if ips:
                         status, title = await self.get_http_info(sub)
-                        # জঞ্জাল ফিল্টার: শুধু কাজ করে এমন টার্গেট দেখাবে
+                        # জঞ্জাল ফিল্টার: শুধু লাইভ টার্গেট প্রিন্ট হবে
                         if status:
                             print(f"{G}[+] {sub:<40} {str(ips):<25} [{status}] [{title}]{W}")
                 except: continue
@@ -97,26 +91,23 @@ class ReconEngine:
         connector = aiohttp.TCPConnector(limit=self.threads, ssl=False)
         self.session = aiohttp.ClientSession(connector=connector)
         
-        # প্যাসিভ সোর্স ডাটা (পাওয়ার মেইনটেইনড)
+        # প্যাসিভ সোর্স (Full Power)
         await self.queue.put((10, random.random(), self.domain))
         
         workers = [asyncio.create_task(self.worker()) for _ in range(self.threads)]
         await asyncio.gather(*workers)
         await self.session.close()
-        print(f"\n{G}[#] Recon Done. Power Scan Complete.{W}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("domain", nargs="?", help="Target Domain")
-    parser.add_argument("-d", "--target", help="Alternative Target Flag")
+    parser.add_argument("domain", nargs="?")
     args = parser.parse_args()
     
-    target = args.domain if args.domain else args.target
-    if not target:
+    if not args.domain:
         print(f"{R}[!] Usage: asrecon google.com{W}")
         sys.exit(1)
         
     try:
-        asyncio.run(ReconEngine(target).run())
+        asyncio.run(ReconEngine(args.domain).run())
     except KeyboardInterrupt:
         sys.exit(0)
