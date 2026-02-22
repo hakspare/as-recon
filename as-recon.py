@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 import asyncio
 import aiohttp
-import json
 import argparse
-import random
 import re
 import socket
+import sys
 from pathlib import Path
 
-# Colors & Logo
-C, G, Y, R, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[0m', '\033[1m'
+# Colors
+C, G, Y, R, W, B, M = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[0m', '\033[1m', '\033[95m'
 
 LOGO = f"""
 {B}{C}  █████╗ ███████╗      ██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
@@ -19,111 +18,111 @@ LOGO = f"""
  ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
  ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
 {W}
-         {Y}AS-RECON v20.7{W} • {C}Master Edition{W}
+         {Y}AS-RECON v20.9{W} • {C}The Hunting Edition{W}
 """
 
-PASSIVE_SOURCES = [
-    {"name": "anubisdb", "url": "https://jldc.me/anubis/subdomains/{domain}"},
-    {"name": "crtsh", "url": "https://crt.sh/?q=%.{domain}&output=json"},
-    {"name": "columbus", "url": "https://columbus.elmasy.com/api/lookup/{domain}"},
-    {"name": "threatcrowd", "url": "https://www.threatcrowd.org/searchApi/v2/domain/report/?domain={domain}"}
-]
-
 class ReconEngine:
-    def __init__(self, domain, threads=100):
-        self.domain = domain.lower()
-        self.threads = threads
+    def __init__(self, args):
+        self.domain = args.domain.lower()
+        self.threads = args.threads
+        self.output = args.output
+        self.show_ip = args.show_ip
+        self.silent = args.silent
+        self.live = args.live
         self.assets = {}
-        self.scanned = set()
         self.seen = set()
         self.queue = asyncio.Queue()
-        self.session = None
 
-    async def add_to_queue(self, item):
-        item = item.strip().lower().lstrip("*.").rstrip(".")
-        if item and item not in self.seen and item.endswith(self.domain):
-            self.seen.add(item)
-            await self.queue.put(item)
+    async def get_live_info(self, session, url):
+        """HTTP Status এবং Technology ডিটেক্ট করার ম্যাজিক"""
+        try:
+            async with session.get(f"http://{url}", timeout=5, ssl=False, allow_redirects=True) as resp:
+                status = resp.status
+                server = resp.headers.get("Server", "Unknown")
+                length = resp.headers.get("Content-Length", "0")
+                
+                # Status Color Logic
+                color = G if status == 200 else Y if status in [301, 302] else R
+                return f"{color}[{status}]{W} {M}[{server}]{W} {C}[len:{length}]{W}"
+        except:
+            return None
 
     async def resolve_host(self, name):
-        """DNS Resolution using system resolver for 100% accuracy"""
         try:
             loop = asyncio.get_event_loop()
-            # Standard socket resolver - bypasses aiodns bugs
             addr_info = await loop.getaddrinfo(name, None, family=socket.AF_INET)
-            ips = list(set([info[4][0] for info in addr_info]))
-            return ips
-        except:
-            return []
+            return list(set([info[4][0] for info in addr_info]))
+        except: return []
 
-    async def fetch_source(self, src):
+    async def fetch_source(self, session, url):
         try:
-            async with self.session.get(src["url"].format(domain=self.domain), ssl=False, timeout=15) as r:
-                if r.status != 200: return set()
+            async with session.get(url.format(domain=self.domain), ssl=False, timeout=15) as r:
+                if r.status != 200: return
                 content = await r.text()
                 pattern = r'\b(?:[a-zA-Z0-9_-]{1,63}\.)+' + re.escape(self.domain) + r'\b'
                 matches = re.findall(pattern, content, re.IGNORECASE)
-                subs = {m.lower().lstrip("*.") for m in matches if m.lower().endswith(self.domain)}
-                print(f"{G}[+] {src['name']}: {len(subs)} found{W}")
-                return subs
-        except: return set()
+                for m in matches:
+                    sub = m.lower().lstrip("*.").rstrip(".")
+                    if sub.endswith(self.domain) and sub not in self.seen:
+                        self.seen.add(sub)
+                        await self.queue.put(sub)
+        except: pass
 
-    async def worker(self):
+    async def worker(self, session):
         while True:
             sub = await self.queue.get()
-            try:
-                if sub not in self.scanned:
-                    self.scanned.add(sub)
-                    ips = await self.resolve_host(sub)
-                    if ips:
-                        self.assets[sub] = ips
-                        # Real-time success output
-                        print(f"{Y}[VALID]{W} {sub.ljust(30)} {G}{ips}{W}")
-            finally:
-                self.queue.task_done()
+            ips = await self.resolve_host(sub)
+            if ips:
+                live_data = ""
+                if self.live:
+                    info = await self.get_live_info(session, sub)
+                    if info: live_data = f" {info}"
+                
+                if self.silent:
+                    print(sub)
+                else:
+                    ip_info = f" {G}({','.join(ips)}){W}" if self.show_ip else ""
+                    print(f"{B}[+]{W} {sub.ljust(35)}{ip_info}{live_data}")
+                
+                self.assets[sub] = ips
+            self.queue.task_done()
 
     async def run(self):
-        print(LOGO)
-        self.session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False))
+        if not self.silent: print(LOGO)
         
-        print(f"{Y}[*] Starting Passive Discovery...{W}")
-        tasks = [self.fetch_source(s) for s in PASSIVE_SOURCES]
-        results = await asyncio.gather(*tasks)
-        for res in results:
-            for sub in res: await self.add_to_queue(sub)
-        
-        q_size = self.queue.qsize()
-        print(f"{G}[+] Passive Phase Complete. Queue Size: {q_size}{W}")
-        
-        if q_size == 0:
-            print(f"{R}[!] No subdomains discovered.{W}")
-            await self.session.close()
-            return
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+            sources = [
+                "https://jldc.me/anubis/subdomains/{}",
+                "https://crt.sh/?q=%.{}&output=json",
+                "https://columbus.elmasy.com/api/lookup/{}",
+                "https://www.threatcrowd.org/searchApi/v2/domain/report/?domain={}"
+            ]
+            
+            if not self.silent: print(f"{Y}[*] Discovering & Probing {self.domain}...{W}\n")
+            await asyncio.gather(*[self.fetch_source(session, s) for s in sources])
+            
+            workers = [asyncio.create_task(self.worker(session)) for _ in range(self.threads)]
+            await self.queue.join()
+            for w in workers: w.cancel()
 
-        print(f"{Y}[*] Validating {q_size} subdomains using {self.threads} threads...{W}")
-        workers = [asyncio.create_task(self.worker()) for _ in range(self.threads)]
-        
-        # Wait until everything in the queue is processed
-        await self.queue.join()
-        
-        for w in workers: w.cancel()
-        await self.session.close()
-        
-        print(f"\n{G}===================================================={W}")
-        print(f"{G}[+] Recon finished! {len(self.assets)} unique subdomains validated.{W}")
-        print(f"{G}===================================================={W}")
-        
-        if self.assets:
-            output_file = f"subs_{self.domain}.txt"
-            Path(output_file).write_text("\n".join(sorted(self.assets.keys())))
-            print(f"{C}[*] Results saved in: {output_file}{W}")
+        if self.output:
+            Path(self.output).write_text("\n".join(sorted(self.assets.keys())))
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("domain")
-    parser.add_argument("--threads", type=int, default=50) # Reduced default threads for stability
+    parser = argparse.ArgumentParser(description="AS-RECON PRO")
+    parser.add_argument("-d", "--domain", required=True, help="Target domain")
+    parser.add_argument("-t", "--threads", type=int, default=50, help="Threads")
+    parser.add_argument("-o", "--output", help="Save results")
+    parser.add_argument("-ip", "--show-ip", action="store_true", help="Show IPs")
+    parser.add_argument("-live", action="store_true", help="Show Status & Tech")
+    parser.add_argument("-silent", action="store_true", help="Silent mode")
+    
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+        
     args = parser.parse_args()
-    asyncio.run(ReconEngine(args.domain, args.threads).run())
+    asyncio.run(ReconEngine(args).run())
 
 if __name__ == "__main__":
     main()
