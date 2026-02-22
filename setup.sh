@@ -1,154 +1,108 @@
-#!/usr/bin/env bash
-# =============================================================================
-# AS-RECON Commercial Installer v22.0
-# Fully automated, cross-platform, zero user confusion
-# =============================================================================
+#!/bin/bash
 
-set -euo pipefail
+# ═══════════════════════════════════
+# AS-RECON Commercial Installer v21.0
+# Author: Ajijul Islam Shohan (@hakspare)
+# ═══════════════════════════════════
 
-# ----------------------------
 # Colors
-# ----------------------------
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-BLUE='\033[0;34m'
-BOLD='\033[1m'
-NC='\033[0m'
+G='\033[92m'
+Y='\033[93m'
+R='\033[91m'
+B='\033[1m'
+W='\033[0m'
 
-echo -e "${BLUE}${BOLD}"
-cat << "EOF"
-   █████╗ ███████╗      ██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
-  ██╔══██╗██╔════╝      ██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║
-  ███████║███████╗      ██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║
-  ██╔══██║╚════██║      ██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║
-  ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
-  ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
+echo -e "${G}${B}[*] AS-RECON v21.0 Commercial Installer Starting...${W}"
 
-        AS-RECON v20.3 - 55+ Passive Sources
-        Subdomain Recon Engine - Commercial Edition
-EOF
-echo -e "${NC}"
-
-echo -e "${YELLOW}[*] Starting Installer...${NC}"
-
-# ----------------------------
 # Detect OS
-# ----------------------------
-OS="$(uname -s)"
-echo -e "${GREEN}[*] Detected OS: $OS${NC}"
+OS=$(uname -s)
+echo -e "${Y}[*] Detected OS: $OS${W}"
 
-# ----------------------------
-# Check Python 3.8+
-# ----------------------------
-if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}[✗] Python3 not found. Install Python 3.8+ first.${NC}"
+# Check Python
+if ! command -v python3 &>/dev/null; then
+    echo -e "${R}[✗] Python3 not found! Install Python3 first.${W}"
+    exit 1
+fi
+PYTHON_VERSION=$(python3 -V | awk '{print $2}')
+echo -e "${G}[✓] Python OK: $PYTHON_VERSION${W}"
+
+# Check git
+if ! command -v git &>/dev/null; then
+    echo -e "${R}[✗] git not found! Install git first.${W}"
     exit 1
 fi
 
-PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')
-PY_MAJOR=$(echo $PY_VER | cut -d. -f1)
-PY_MINOR=$(echo $PY_VER | cut -d. -f2)
-
-if [[ $PY_MAJOR -lt 3 || ( $PY_MAJOR -eq 3 && $PY_MINOR -lt 8 ) ]]; then
-    echo -e "${RED}[✗] Python 3.8+ required. Found $PY_VER${NC}"
+# Check curl
+if ! command -v curl &>/dev/null; then
+    echo -e "${R}[✗] curl not found! Install curl first.${W}"
     exit 1
 fi
-echo -e "${GREEN}[✓] Python OK: $PY_VER${NC}"
 
-# ----------------------------
-# Check/Install dependencies: git, curl, jq
-# ----------------------------
-for cmd in git curl jq; do
-    if ! command -v $cmd &> /dev/null; then
-        echo -e "${YELLOW}[*] Installing $cmd...${NC}"
-        if [[ "$OS" == "Linux" ]]; then
-            if command -v apt &> /dev/null; then sudo apt install -y $cmd
-            elif command -v dnf &> /dev/null; then sudo dnf install -y $cmd
-            elif command -v pacman &> /dev/null; then sudo pacman -S --noconfirm $cmd
-            fi
-        elif [[ "$OS" == "Darwin" ]]; then
-            brew install $cmd
-        fi
-    else
-        echo -e "${GREEN}[✓] $cmd OK${NC}"
-    fi
-done
-
-# ----------------------------
-# Ensure ~/.local/bin in PATH
-# ----------------------------
-if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-    export PATH="$HOME/.local/bin:$PATH"
-    SHELLRC="$HOME/.bashrc"
-    [[ -f "$HOME/.zshrc" ]] && SHELLRC="$HOME/.zshrc"
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELLRC"
-    echo -e "${GREEN}[✓] Added ~/.local/bin to PATH in $SHELLRC${NC}"
+# Check jq
+if ! command -v jq &>/dev/null; then
+    echo -e "${R}[✗] jq not found! Install jq first.${W}"
+    exit 1
 fi
 
-# ----------------------------
-# Install pipx + poetry
-# ----------------------------
-echo -e "${BLUE}[*] Installing/updating pipx & poetry...${NC}"
-python3 -m pip install --user --upgrade pip pipx >/dev/null 2>&1 || true
-python3 -m pipx ensurepath >/dev/null 2>&1 || true
-pipx install --force poetry >/dev/null 2>&1 || pipx upgrade poetry >/dev/null 2>&1
-echo -e "${GREEN}[✓] pipx & poetry ready${NC}"
-
-# ----------------------------
-# Clone/Update Repo
-# ----------------------------
-REPO_DIR="$HOME/as-recon"
-REPO_URL="https://github.com/hakspare/as-recon.git"
-
-if [ -d "$REPO_DIR/.git" ]; then
-    echo -e "${YELLOW}[*] Repo exists. Pulling latest...${NC}"
-    cd "$REPO_DIR"
-    git pull origin main
-else
-    echo -e "${BLUE}[*] Cloning AS-RECON...${NC}"
-    git clone "$REPO_URL" "$REPO_DIR"
-    cd "$REPO_DIR"
-fi
-
-# ----------------------------
-# Create Virtual Environment
-# ----------------------------
+# Setup directories
 VENV_DIR="$HOME/.as-recon-venv"
+SCRIPT_DIR="$HOME/as-recon"
+BIN_DIR="$HOME/.local/bin"
+
+mkdir -p "$BIN_DIR"
+
+# Create virtual environment if not exists
 if [ ! -d "$VENV_DIR" ]; then
-    echo -e "${BLUE}[*] Creating virtual environment...${NC}"
+    echo -e "${Y}[*] Creating virtual environment at $VENV_DIR...${W}"
     python3 -m venv "$VENV_DIR"
 fi
-source "$VENV_DIR/bin/activate"
 
-# ----------------------------
-# Install Dependencies
-# ----------------------------
-if [ -f "requirements.txt" ]; then
-    echo -e "${BLUE}[*] Installing Python dependencies...${NC}"
-    pip install -r requirements.txt
+# Activate venv and install dependencies
+echo -e "${Y}[*] Installing Python dependencies...${W}"
+source "$VENV_DIR/bin/activate"
+REQ_FILE="$SCRIPT_DIR/requirements.txt"
+if [ -f "$REQ_FILE" ]; then
+    pip install --upgrade pip
+    pip install -r "$REQ_FILE"
 else
-    echo -e "${YELLOW}[!] requirements.txt not found, skipping dependency install.${NC}"
+    echo -e "${Y}[!] requirements.txt not found, skipping dependency install.${W}"
+fi
+deactivate
+
+# Create wrapper script
+WRAPPER="$BIN_DIR/as-recon"
+echo -e "${Y}[*] Creating global command at $WRAPPER...${W}"
+cat > "$WRAPPER" << EOL
+#!/usr/bin/env bash
+# AS-RECON wrapper
+
+VENV="$VENV_DIR"
+SCRIPT="$SCRIPT_DIR/as-recon.py"
+
+if [ ! -f "\$SCRIPT" ]; then
+    echo "Error: \$SCRIPT not found!"
+    exit 1
 fi
 
-# ----------------------------
-# Install global command
-# ----------------------------
-CMD_PATH="$HOME/.local/bin/as-recon"
-cp "$REPO_DIR/as-recon.py" "$CMD_PATH"
-chmod +x "$CMD_PATH"
+source "\$VENV/bin/activate"
+python3 "\$SCRIPT" "\$@"
+EOL
 
-echo -e "${GREEN}[✓] AS-RECON installed successfully!${NC}"
-echo -e "${BLUE}[*] Ensure ~/.local/bin is in PATH or run 'source ~/.bashrc'/'source ~/.zshrc'${NC}"
+chmod +x "$WRAPPER"
 
-# ----------------------------
-# Final Message
-# ----------------------------
-echo -e "${BOLD}${GREEN}╔══════════════════════════════════╗"
-echo -e "║       AS-RECON Setup Completed ✅     ║"
-echo -e "╚══════════════════════════════════╝${NC}"
-echo -e "Run AS-RECON globally:"
-echo -e "  as-recon example.com"
-echo -e "Advanced:"
-echo -e "  as-recon example.com --threads 300 --rate 150 --depth 6 --api-keys api_keys.json"
-echo -e "Happy Recon! 🔍"
+# Ensure PATH
+SHELL_RC="$HOME/.bashrc"
+if [ -n "$ZSH_VERSION" ]; then
+    SHELL_RC="$HOME/.zshrc"
+fi
+
+if ! grep -q "$BIN_DIR" "$SHELL_RC"; then
+    echo -e "\n# AS-RECON bin path" >> "$SHELL_RC"
+    echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$SHELL_RC"
+fi
+
+echo -e "${G}[✓] AS-RECON installed successfully!${W}"
+echo -e "${B}[*] Make sure to run 'source $SHELL_RC' or reopen your terminal.${W}"
+echo -e "${B}[*] Usage: as-recon example.com${W}"
+echo -e "${B}[*] Advanced: as-recon example.com --threads 300 --rate 150 --depth 6 --api-keys api_keys.json${W}"
+echo -e "${G}Happy Recon! 🔍${W}"
