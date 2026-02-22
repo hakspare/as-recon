@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-AS-RECON v23.4 - Full 50+ Sources + Problem Solved Edition (2026)
+AS-RECON v23.5 - Full 50+ Sources + All Problems Solved (2026)
+Direct run: asrecon google.com --live
 """
 
 import asyncio
@@ -28,7 +29,7 @@ LOGO = f"""
 ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
 ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
 {W}
-    {Y}AS-RECON v23.4 - 50+ Sources + All Problems Solved{W}
+    {Y}AS-RECON v23.5 - 50+ Sources + Stable & Powerful{W}
 """
 
 SOURCE_SCORE = {
@@ -129,7 +130,7 @@ class ReconEngine:
             await self.queue.put((-prio - score_boost, random.random(), clean))
 
     async def resolve(self, name):
-        await asyncio.sleep(random.uniform(0.2, 0.6))
+        await asyncio.sleep(random.uniform(0.2, 0.6))  # DNS rate limit avoid
         try:
             res = await asyncio.wait_for(self.resolver.query_dns(name, 'A'), timeout=2.5)
             return [r.host for r in res if hasattr(r, 'host') and r.host]
@@ -153,8 +154,7 @@ class ReconEngine:
 
     async def fetch_source(self, src):
         if src["needs_key"] and src["name"] not in self.api_keys:
-            if self.skipped < 5:  # limit skip message to 5
-                print(f"{Y}Skipping {src['name']}: API key missing{W}")
+            print(f"{Y}Skipping {src['name']}: API key missing{W}")
             self.skipped += 1
             return set()
 
@@ -235,7 +235,7 @@ class ReconEngine:
                 all_subs.update(res)
         print(f"\n{G}Passive sources collected {len(all_subs)} unique subdomains{W}")
         if self.skipped > 0:
-            print(f"{Y}Skipped {self.skipped} sources (missing API keys){W}")
+            print(f"{Y}Skipped {self.skipped} sources due to missing API keys{W}")
         if self.failed > 0:
             print(f"{Y}Failed {self.failed} sources (connection or access error){W}")
         for sub in sorted(all_subs, key=lambda x: x.count('.')):
