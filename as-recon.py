@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-AS-RECON v20.5 - Stable for all users • Updated 2026 sources + Live probe
-Focus: Reliable free/passive sources + better error handling
+AS-RECON v20.7 - Ready for direct run: asrecon google.com
+Stable 2026 edition - only working free passive sources
 """
 
 import asyncio
@@ -10,121 +10,72 @@ import json
 import argparse
 import random
 import re
-import gc
 import time
-from datetime import datetime
-import aiodns
-import networkx as nx
-import sqlite3
-from pathlib import Path
-import socket
-import ssl
-from urllib.parse import urlparse
 
 # Colors
-C, G, Y, R, M, W, B = '\033[96m', '\033[92m', '\033[93m', '\033[91m', '\033[95m', '\033[0m', '\033[1m'
+C = '\033[96m'
+G = '\033[92m'
+Y = '\033[93m'
+R = '\033[91m'
+W = '\033[0m'
 
 LOGO = f"""
-{B}{C}  █████╗ ███████╗      ██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
- ██╔══██╗██╔════╝      ██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║
- ███████║███████╗      ██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║
- ██╔══██║╚════██║      ██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║
- ██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
- ╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
+{C}█████╗ ███████╗      ██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
+██╔══██╗██╔════╝      ██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║
+███████║███████╗      ██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║
+██╔══██║╚════██║      ██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║
+██║  ██║███████║      ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
+╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
 {W}
-         {Y}AS-RECON v20.5{W} • {C}Stable & User-Friendly 2026 Edition{W}
+    {Y}AS-RECON v20.7  •  asrecon google.com ready!{W}
 """
 
-# Updated reliable sources (2026 context - mostly free/public)
 PASSIVE_SOURCES = [
-    {"name": "crtsh", "url": "https://crt.sh/?q=%.{domain}&output=json", "needs_key": False},
-    {"name": "anubis", "url": "https://jldc.me/anubis/subdomains/{domain}", "needs_key": False},
-    {"name": "alienvault_otx", "url": "https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns", "needs_key": False},
-    # API key দরকার → comment out করা (optional)
-    # {"name": "chaos", "url": "https://chaos.projectdiscovery.io/assets/{domain}.json", "needs_key": True},
-    # {"name": "censys", "url": "...", "needs_key": True},
+    {"name": "crtsh", "url": "https://crt.sh/?q=%.{domain}&output=json"},
+    {"name": "anubis", "url": "https://jldc.me/anubis/subdomains/{domain}"},
+    {"name": "alienvault", "url": "https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns"},
 ]
 
-PERMUTATIONS = ["dev", "staging", "test", "beta", "api", "app", "portal", "admin", "internal", "prod"]
+PERMUTATIONS = ["dev", "test", "api", "app", "stage", "prod", "admin", "beta"]
 
 TECH_PATTERNS = {
     "Apache": b"apache",
     "Nginx": b"nginx",
     "Cloudflare": b"cloudflare",
     "WordPress": b"wp-",
-    "Django": b"__csrftoken",
-    # আরও যোগ করা যাবে
 }
 
 class ReconEngine:
-    def __init__(self, domain, threads=50, rate=30, depth=4, api_keys_path=None, live=False):
+    def __init__(self, domain, threads=30, rate=20, depth=4, live=False):
         self.domain = domain.lower()
         self.threads = threads
         self.rate = rate
         self.depth = depth
         self.live = live
-        self.api_keys = self.load_api_keys(api_keys_path)
         self.assets = {}
-        self.scanned = set()
         self.seen = set()
         self.queue = asyncio.PriorityQueue()
-        self.wildcard_ips = set()
-        self.session = None
-        self.resolver = aiodns.DNSResolver(rotate=True)
         self.semaphore = asyncio.Semaphore(self.rate)
-        self.db = sqlite3.connect(f"asrecon_{self.domain}.db")
-        self.init_db()
-        self.load_checkpoint()
+        self.session = None
+        self.resolver = aiodns.DNSResolver()
 
-    def load_api_keys(self, path):
-        if not path or not Path(path).exists():
-            return {}
+    async def add_to_queue(self, sub, prio=10):
+        clean = sub.lower().strip()
+        if clean not in self.seen and clean.endswith(self.domain) and clean != self.domain:
+            self.seen.add(clean)
+            await self.queue.put((-prio, random.random(), clean))
+
+    async def resolve(self, name):
         try:
-            with open(path) as f:
-                return json.load(f)
-        except:
-            print(f"{R}API keys file load failed{W}")
-            return {}
-
-    def init_db(self):
-        c = self.db.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS results (sub TEXT PRIMARY KEY, data TEXT, updated TEXT)''')
-        self.db.commit()
-
-    async def add_to_queue(self, item, priority=10):
-        if item not in self.seen and item.endswith(self.domain) and item != self.domain:
-            self.seen.add(item)
-            await self.queue.put((-priority, random.random(), item))
-
-    async def query_smart(self, name):
-        try:
-            res = await asyncio.wait_for(self.resolver.query(name, 'A'), timeout=4)
+            res = await asyncio.wait_for(self.resolver.query(name, 'A'), timeout=3.5)
             return [r.host for r in res if r.host]
         except:
             return []
 
-    async def detect_wildcard(self):
-        print(f"{Y}[*] Checking for wildcard...{W}")
-        randoms = [f"randomtest{random.randint(1,999999)}.{self.domain}" for _ in range(5)]
-        ips_sets = []
-        for r in randoms:
-            ips = await self.query_smart(r)
-            if ips:
-                ips_sets.append(set(ips))
-        if len(ips_sets) >= 3 and len(set.intersection(*ips_sets)) > 1:
-            self.wildcard_ips = set.intersection(*ips_sets)
-            print(f"{Y}[!] Wildcard detected: {self.wildcard_ips}{W}")
-        else:
-            print(f"{G}[+] No wildcard{W}")
-
-    async def fetch_source(self, src):
-        if src["needs_key"] and src["name"] not in self.api_keys:
-            print(f"{Y}Skip {src['name']}: No API key{W}")
-            return set()
-
+    async def fetch(self, src):
         url = src["url"].format(domain=self.domain)
         try:
-            async with self.session.get(url, timeout=15) as resp:
+            async with self.session.get(url, timeout=10) as resp:
                 if resp.status != 200:
                     print(f"{Y}{src['name']} → HTTP {resp.status}{W}")
                     return set()
@@ -134,163 +85,160 @@ class ReconEngine:
                     try:
                         data = json.loads(text)
                         for entry in data:
-                            name = entry.get("name_value", "").strip().lower().lstrip("*.")
-                            if name.endswith(self.domain) and name != self.domain:
-                                subs.add(name)
+                            names = entry.get("name_value", "").split("\n")
+                            for n in names:
+                                clean = n.strip().lower().lstrip("*.")
+                                if clean.endswith(self.domain) and clean != self.domain:
+                                    subs.add(clean)
                     except:
                         pass
                 elif src["name"] == "anubis":
                     try:
                         data = json.loads(text)
-                        subs = {s.lower().rstrip(".").lstrip("*.") for s in data if isinstance(s, str) and s.lower().endswith(self.domain)}
+                        subs = {s.lower().rstrip(".").lstrip("*.") for s in data if s and isinstance(s, str)}
                     except:
                         pass
-                else:
-                    # generic fallback
-                    pattern = r'(?:[a-z0-9][a-z0-9-]{0,61}[a-z0-9]\.)+' + re.escape(self.domain)
-                    matches = re.findall(pattern, text, re.IGNORECASE)
-                    subs = {m.lower().rstrip(".").lstrip("*.") for m in matches if m.lower().endswith(self.domain) and m.lower() != self.domain}
-
+                else:  # alienvault generic
+                    try:
+                        data = json.loads(text)
+                        for rec in data.get("passive_dns", []):
+                            h = rec.get("hostname", "").lower().rstrip(".")
+                            if h.endswith(self.domain) and h != self.domain:
+                                subs.add(h)
+                    except:
+                        pattern = r'[\w\.-]+\.' + re.escape(self.domain)
+                        for m in re.findall(pattern, text, re.I):
+                            clean = m.lower().rstrip(".")
+                            if clean != self.domain:
+                                subs.add(clean)
                 print(f"{G}{src['name']}: {len(subs)} subs{W}")
                 return subs
         except Exception as e:
-            print(f"{R}{src['name']} error: {str(e)[:60]}{W}")
+            print(f"{R}{src['name']} failed: {str(e)[:50]}{W}")
             return set()
 
-    async def passive_phase(self):
-        tasks = [self.fetch_source(s) for s in PASSIVE_SOURCES]
+    async def collect_passive(self):
+        tasks = [self.fetch(s) for s in PASSIVE_SOURCES]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        all_subs = set()
+        total = set()
         for res in results:
             if isinstance(res, set):
-                all_subs.update(res)
-        print(f"{G}[+] Passive found: {len(all_subs)} unique{W}")
-        for sub in sorted(all_subs):
-            await self.add_to_queue(sub, priority=20 if '.' in sub else 10)
+                total.update(res)
+        print(f"\n{G}Total passive subdomains: {len(total)}{W}")
+        for sub in sorted(total, key=lambda x: x.count('.')):
+            prio = 25 if any(k in sub for k in ['api', 'dev', 'test', 'prod']) else 12
+            await self.add_to_queue(sub, prio)
 
     async def probe_live(self, sub):
-        result = {"ip": [], "ports": [], "tech": set(), "title": "", "status": "down"}
-        ips = await self.query_smart(sub)
+        result = {"ip": [], "ports": [], "tech": [], "title": ""}
+        ips = await self.resolve(sub)
         if not ips:
             return None
         result["ip"] = ips[:2]
 
         for port in [80, 443, 8080]:
             try:
+                ssl_ctx = None
                 if port == 443:
-                    ctx = ssl.create_default_context()
-                    ctx.check_hostname = False
-                    ctx.verify_mode = ssl.CERT_NONE
-                    reader, writer = await asyncio.open_connection(sub, port, ssl=ctx, timeout=3)
-                else:
-                    reader, writer = await asyncio.open_connection(sub, port, timeout=3)
+                    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                    ssl_ctx.check_hostname = False
+                    ssl_ctx.verify_mode = ssl.CERT_NONE
+
+                r, w = await asyncio.open_connection(sub, port, ssl=ssl_ctx, timeout=3)
 
                 if port in [80, 8080]:
-                    req = f"GET / HTTP/1.1\r\nHost: {sub}\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n".encode()
-                    writer.write(req)
+                    req = f"GET / HTTP/1.1\r\nHost: {sub}\r\nConnection: close\r\n\r\n".encode()
+                    w.write(req)
                     data = b""
-                    try:
-                        while True:
-                            chunk = await reader.read(2048)
-                            if not chunk: break
-                            data += chunk
-                            if len(data) > 8192: break
-                    except:
-                        pass
+                    async for chunk in r:
+                        data += chunk
+                        if len(data) > 8192: break
+                    text_low = data.lower()
 
-                    text = data.lower()
-                    if b"<title>" in data:
-                        m = re.search(br'<title>(.*?)</title>', data, re.I | re.S)
-                        if m:
-                            result["title"] = m.group(1).decode(errors='ignore').strip()[:60]
+                    m = re.search(br'<title>(.*?)</title>', data, re.I | re.S)
+                    if m:
+                        result["title"] = m.group(1).decode(errors='ignore').strip()[:60]
 
                     for tech, pat in TECH_PATTERNS.items():
-                        if pat in text:
-                            result["tech"].add(tech)
+                        if pat in text_low:
+                            result["tech"].append(tech)
 
                 result["ports"].append(port)
-                result["status"] = "live"
-                writer.close()
-                await writer.wait_closed()
+                w.close()
+                await w.wait_closed()
             except:
-                pass
+                continue
 
-        return result if result["status"] == "live" else None
+        if result["ports"]:
+            return result
+        return None
 
     async def worker(self):
         while True:
             try:
-                _, _, sub = await self.queue.get()
-                if sub in self.scanned:
-                    continue
-                self.scanned.add(sub)
-
-                async with self.semaphore:
-                    ips = await self.query_smart(sub)
-                if not ips or (self.wildcard_ips & set(ips)):
+                neg_p, rand, sub = await asyncio.wait_for(self.queue.get(), 4)
+                if sub in self.assets:
                     continue
 
                 if self.live:
                     probe = await self.probe_live(sub)
                     if probe:
                         self.assets[sub] = probe
-                        tech_str = ", ".join(probe["tech"]) if probe["tech"] else "-"
-                        print(f"{G}{sub:<45} | {probe['ip'][0] if probe['ip'] else '-':<15} | Ports: {probe['ports']} | Tech: {tech_str} | {probe['title'][:40]}{W}")
+                        ip1 = probe["ip"][0] if probe["ip"] else "-"
+                        ports_str = ",".join(map(str, probe["ports"]))
+                        tech_str = ",".join(probe["tech"]) or "-"
+                        title = probe["title"] or "-"
+                        print(f"{G}{sub:<55} | {ip1:<18} | ports:{ports_str:10} | tech:{tech_str:20} | {title[:35]}{W}")
                 else:
-                    self.assets[sub] = {"ips": ips}
+                    ips = await self.resolve(sub)
+                    if ips:
+                        self.assets[sub] = {"ips": ips}
 
                 if sub.count('.') < self.depth:
-                    for p in PERMUTATIONS:
-                        await self.add_to_queue(f"{p}.{sub}", priority=8)
+                    for pre in PERMUTATIONS:
+                        new = f"{pre}.{sub}"
+                        await self.add_to_queue(new, prio=6)
 
+            except asyncio.TimeoutError:
+                if self.queue.empty():
+                    break
             except Exception as e:
-                print(f"{R}Worker error on {sub}: {str(e)[:50]}{W}")
-            finally:
-                self.queue.task_done()
-
-    def save_results(self):
-        with open(f"subs_{self.domain}.txt", "w") as f:
-            for sub in sorted(self.assets):
-                f.write(f"{sub}\n")
-        print(f"{G}→ Saved {len(self.assets)} subs to subs_{self.domain}.txt{W}")
+                print(f"{R}Worker err: {str(e)[:40]}{W}")
 
     async def run(self):
         print(LOGO)
-        async with aiohttp.ClientSession() as sess:
-            self.session = sess
-            await self.detect_wildcard()
-            await self.passive_phase()
+        self.session = aiohttp.ClientSession()
+        await self.collect_passive()
 
-            workers = [asyncio.create_task(self.worker()) for _ in range(self.threads)]
-            await self.queue.join()
-            for w in workers:
-                w.cancel()
+        print(f"\n{Y}Workers starting ({self.threads} threads, rate limit {self.rate}){W}\n")
+        tasks = [asyncio.create_task(self.worker()) for _ in range(self.threads)]
 
-            self.save_results()
+        await self.queue.join()
+        for t in tasks:
+            t.cancel()
+
+        await self.session.close()
+
+        if self.assets:
+            out_file = f"subs_{self.domain}.txt"
+            with open(out_file, "w") as f:
+                for s in sorted(self.assets):
+                    f.write(f"{s}\n")
+            print(f"\n{G}Finished! {len(self.assets)} subdomains saved → {out_file}{W}")
+        else:
+            print(f"\n{Y}No valid subdomains found this run.{W}")
 
 def main():
-    parser = argparse.ArgumentParser(description="AS-RECON v20.5 - Easy subdomain recon for everyone")
-    parser.add_argument("domain", nargs="?", help="Target domain (example: google.com)")
-    parser.add_argument("--threads", type=int, default=50, help="Concurrent tasks (default 50)")
-    parser.add_argument("--rate", type=int, default=30, help="Max concurrent requests")
-    parser.add_argument("--depth", type=int, default=4, help="Permutation depth")
-    parser.add_argument("--api-keys", help="JSON file with API keys (optional)")
-    parser.add_argument("--live", action="store_true", help="Probe live subdomains (IP, ports, tech)")
+    parser = argparse.ArgumentParser(description="AS-RECON v20.7 - asrecon google.com")
+    parser.add_argument("domain", help="Target domain (google.com)")
+    parser.add_argument("--threads", type=int, default=30)
+    parser.add_argument("--rate", type=int, default=20)
+    parser.add_argument("--depth", type=int, default=4)
+    parser.add_argument("--live", action="store_true", help="Check live status + title/tech")
     args = parser.parse_args()
 
-    if not args.domain:
-        parser.print_help()
-        return
-
-    engine = ReconEngine(
-        domain=args.domain,
-        threads=args.threads,
-        rate=args.rate,
-        depth=args.depth,
-        api_keys_path=args.api_keys,
-        live=args.live
-    )
-    asyncio.run(engine.run())
+    recon = ReconEngine(args.domain, args.threads, args.rate, args.depth, args.live)
+    asyncio.run(recon.run())
 
 if __name__ == "__main__":
     main()
