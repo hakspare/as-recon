@@ -23,25 +23,36 @@ if [[ "$PY_MAJOR" -lt 3 || ( "$PY_MAJOR" -eq 3 && "$PY_MINOR" -lt 8 ) ]]; then
 fi
 echo -e "${GREEN}[✓] Python OK: $PY${NC}"
 
-# Dependencies
-echo -e "${YELLOW}[*] Installing Python dependencies...${NC}"
-pip install --user -r requirements.txt >/dev/null
+# -------------------------
+# Use pipx for isolation
+# -------------------------
+echo -e "${YELLOW}[*] Installing/updating pipx...${NC}"
+python3 -m pip install --user --upgrade pip pipx >/dev/null 2>&1 || true
+python3 -m pipx ensurepath >/dev/null 2>&1 || true
+export PATH="$HOME/.local/bin:$PATH"
 
-# Determine global bin path
-BIN_PATH="$HOME/.local/bin"
-mkdir -p "$BIN_PATH"
-
-# Make executable
-chmod +x as-recon
-cp as-recon "$BIN_PATH/as-recon"
-
-# Add to PATH if needed
-if ! echo "$PATH" | grep -q "$BIN_PATH"; then
-    SHELLRC="$HOME/.bashrc"
-    if [[ -n "$ZSH_VERSION" ]]; then SHELLRC="$HOME/.zshrc"; fi
-    echo "export PATH=\"$BIN_PATH:\$PATH\"" >> "$SHELLRC"
-    echo -e "${YELLOW}[!] Added $BIN_PATH to PATH. Please 'source $SHELLRC' or reopen terminal.${NC}"
+if ! command -v pipx >/dev/null 2>&1; then
+    echo -e "${RED}[✗] pipx not found. Please install manually.${NC}"
+    exit 1
 fi
 
-echo -e "${GREEN}[✓] AS-RECON installed successfully!"
-echo -e "Run: as-recon -d example.com"
+# -------------------------
+# Install dependencies in venv via pipx
+# -------------------------
+echo -e "${YELLOW}[*] Installing AS-RECON with pipx (virtual environment)...${NC}"
+pipx install . --force || {
+    echo -e "${RED}[✗] pipx install failed. Run manually: pipx install .${NC}"
+    exit 1
+}
+
+# -------------------------
+# PATH instructions
+# -------------------------
+echo -e "${GREEN}[✓] AS-RECON installed successfully!${NC}"
+echo -e "${YELLOW}[*] Make sure ~/.local/bin is in your PATH.${NC}"
+echo -e "Run: source ~/.bashrc or source ~/.zshrc if command 'as-recon' is not found"
+
+echo -e "\nUsage example:"
+echo -e "  as-recon example.com"
+echo -e "Advanced usage:"
+echo -e "  as-recon example.com --threads 300 --rate 150 --depth 6 --api-keys api_keys.json"
